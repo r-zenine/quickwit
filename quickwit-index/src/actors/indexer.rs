@@ -212,11 +212,11 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use crate::models::CommitPolicy;
+    use crate::models::RawDocBatch;
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
     use quickwit_actors::SyncActor;
-    use crate::models::CommitPolicy;
-    use crate::models::RawDocBatch;
 
     use super::Indexer;
 

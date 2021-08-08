@@ -24,13 +24,13 @@ use quickwit_actors::ActorContext;
 use quickwit_actors::AsyncActor;
 use quickwit_actors::Mailbox;
 use quickwit_actors::MessageProcessError;
-use tracing::debug;
-use tracing::info;
 use std::io;
 use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
+use tracing::debug;
+use tracing::info;
 
 use crate::models::RawDocBatch;
 
