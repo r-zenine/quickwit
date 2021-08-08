@@ -1,6 +1,6 @@
 use tokio::sync::watch;
 use tokio::task::spawn_blocking;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::actor::MessageProcessError;
 use crate::actor_handle::ActorTermination;
@@ -22,7 +22,7 @@ pub trait SyncActor: Actor + Sized {
     fn process_message(
         &mut self,
         message: Self::Message,
-        context: crate::ActorContext<'_, Self::Message>,
+        ctx: &ActorContext<Self::Message>,
     ) -> Result<(), MessageProcessError>;
 
     /// Function called if there are no more messages available.
@@ -123,12 +123,13 @@ fn sync_actor_loop<A: SyncActor>(
                 }
             }
             ReceptionResult::Message(msg) => {
-                let context = ActorContext {
-                    self_mailbox: &self_mailbox,
-                    progress: &progress,
-                    kill_switch: &kill_switch,
+                // TODO avoid building the contexdt all of the time.
+                let ctx = ActorContext {
+                    self_mailbox: self_mailbox.clone(),
+                    progress: progress.clone(),
+                    kill_switch: kill_switch.clone(),
                 };
-                match actor.process_message(msg, context) {
+                match actor.process_message(msg, &ctx) {
                     Ok(()) => (),
                     Err(MessageProcessError::OnDemand) => return ActorTermination::OnDemand,
                     Err(MessageProcessError::Terminated) => return ActorTermination::OnDemand,

@@ -78,7 +78,7 @@ impl AsyncActor for FileSource {
     async fn process_message(
         &mut self,
         _message: Self::Message,
-        _context: ActorContext<'_, Self::Message>,
+        _ctx: &ActorContext<Self::Message>,
     ) -> Result<(), MessageProcessError> {
         let limit_num_bytes = self.file_position.num_bytes + BATCH_NUM_BYTES_THRESHOLD;
         let mut reached_eof = false;

@@ -5,7 +5,7 @@ use crate::Mailbox;
 use crate::{Actor, ActorContext, KillSwitch, Progress, ReceptionResult};
 use async_trait::async_trait;
 use tokio::sync::watch;
-use tracing::{debug, info};
+use tracing::debug;
 
 /// An async actor is executed on a regular tokio task.
 ///
@@ -23,7 +23,7 @@ pub trait AsyncActor: Actor + Sized {
     async fn process_message(
         &mut self,
         message: Self::Message,
-        context: ActorContext<'_, Self::Message>,
+        ctx: &ActorContext<Self::Message>,
     ) -> Result<(), MessageProcessError>;
 
     #[doc(hidden)]
@@ -104,12 +104,13 @@ async fn async_actor_loop<A: AsyncActor>(
                 }
             }
             ReceptionResult::Message(msg) => {
-                let context = ActorContext {
-                    self_mailbox: &self_mailbox,
-                    progress: &progress,
-                    kill_switch: &kill_switch,
+                // TODO avoid rebuilding all the time.
+                let ctx = ActorContext {
+                    self_mailbox: self_mailbox.clone(),
+                    progress: progress.clone(),
+                    kill_switch: kill_switch.clone(),
                 };
-                match actor.process_message(msg, context).await {
+                match actor.process_message(msg, &ctx).await {
                     Ok(()) => (),
                     Err(MessageProcessError::OnDemand) => return ActorTermination::OnDemand,
                     Err(MessageProcessError::Terminated) => return ActorTermination::Disconnect,
