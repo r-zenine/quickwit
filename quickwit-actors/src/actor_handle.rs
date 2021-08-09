@@ -4,6 +4,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tokio::time::timeout;
 use tracing::error;
 
+use crate::actor_state::ActorState;
 use crate::mailbox::Command;
 use crate::{Actor, ActorContext, ActorTermination, Mailbox, Observation};
 
@@ -26,7 +27,7 @@ impl<A: Actor> fmt::Debug for ActorHandle<A> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ActorHandle")
-            .field("name", &self.actor_context.self_mailbox.actor_instance_name())
+            .field("name", &self.actor_context.actor_instance_name())
             .finish()
     }
 }
@@ -38,18 +39,18 @@ impl<A: Actor> ActorHandle<A> {
         ctx: ActorContext<A>
     ) -> Self {
         let mut interval = tokio::time::interval(crate::HEARTBEAT);
-        let actor_instance_name = ctx.self_mailbox.actor_instance_name();
+        let actor_instance_name = ctx.actor_instance_name().to_string();
         let ctx_clone = ctx.clone();
         tokio::task::spawn(async move {
             interval.tick().await;
-            while ctx.kill_switch.is_alive() {
+            while ctx.kill_switch().is_alive() {
                 interval.tick().await;
-                if !ctx.progress.harvest_changes() {
-                    if ctx.actor_state.is_terminated() {
+                if !ctx.progress().harvest_changes() {
+                    if ctx.get_state() == ActorState::Terminated {
                         return;
                     }
                     error!(actor=%actor_instance_name, "actor-timeout");
-                    ctx.kill_switch.kill();
+                    ctx.kill_switch().kill();
                     return;
                 }
             }
@@ -78,8 +79,7 @@ impl<A: Actor> ActorHandle<A> {
     pub async fn process_pending_and_observe(&self) -> Observation<A::ObservableState> {
         let (tx, rx) = oneshot::channel();
         if self
-            .actor_context
-            .self_mailbox
+            .mailbox()
             .send_actor_message(ActorMessage::Observe(tx))
             .await
             .is_err()
@@ -129,7 +129,7 @@ impl<A: Actor> ActorHandle<A> {
             Ok(Ok(())) => Observation::Running(state),
             Ok(Err(_)) => Observation::Terminated(state),
             Err(_) => {
-                if self.actor_context.kill_switch.is_alive() {
+                if self.actor_context.kill_switch().is_alive() {
                     Observation::Timeout(state)
                 } else {
                     self.join_handle.abort();

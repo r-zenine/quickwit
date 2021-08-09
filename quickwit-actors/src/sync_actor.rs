@@ -3,9 +3,8 @@ use tokio::task::spawn_blocking;
 use tracing::{debug, error, info};
 
 use crate::actor::ActorTermination;
-use crate::actor_state::AtomicState;
+use crate::actor_state::ActorState;
 use crate::mailbox::{create_mailbox, Command, Inbox};
-use crate::progress::Progress;
 use crate::{Actor, ActorContext, ActorHandle, KillSwitch, ReceptionResult};
 
 /// An sync actor is executed on a tokio blocking task.
@@ -65,11 +64,11 @@ fn process_msg<A: Actor + SyncActor>(
     ctx: &mut ActorContext<A>,
     state_tx: &Sender<A::ObservableState>
 ) -> Option<ActorTermination> {
-    if !ctx.kill_switch.is_alive() {
+    if !ctx.kill_switch().is_alive() {
         return Some(ActorTermination::KillSwitch);
     }
 
-    ctx.progress.record_progress();
+    ctx.progress().record_progress();
     let default_message_opt = actor.default_message().and_then(|default_message| {
         if ctx.self_mailbox.is_last_mailbox() {
             None
@@ -77,12 +76,12 @@ fn process_msg<A: Actor + SyncActor>(
             Some(default_message)
         }
     });
-    ctx.progress.record_progress();
+    ctx.progress().record_progress();
 
-    let reception_result = inbox.try_recv_msg_blocking(!ctx.is_paused(), default_message_opt);
+    let reception_result = inbox.try_recv_msg_blocking(ctx.get_state() == ActorState::Running, default_message_opt);
 
-    ctx.progress.record_progress();
-    if !ctx.kill_switch.is_alive() {
+    ctx.progress().record_progress();
+    if !ctx.kill_switch().is_alive() {
         return Some(ActorTermination::KillSwitch);
     }
     match reception_result {
@@ -134,10 +133,10 @@ fn sync_actor_loop<A: SyncActor>(
     loop {
         let termination_opt = process_msg(&mut actor, &inbox, &mut ctx, &state_tx);
         if let Some(termination) = termination_opt {
-            ctx.actor_state.terminate();
+            ctx.terminate();
             if termination.is_failure() {
                 error!(actor=?actor.name(), termination=?termination, "actor termination (failure)");
-                ctx.kill_switch.kill();
+                ctx.kill_switch().kill();
             } else {
                 info!(actor=?actor.name(), termination=?termination, "actor termination (not a failure)");
             }

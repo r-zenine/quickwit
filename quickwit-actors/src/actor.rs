@@ -110,16 +110,19 @@ impl<A: Actor> Deref for ActorContext<A> {
 }
 
 pub struct ActorContextInner<A: Actor> {
+    actor_instance_name: String,
     pub(crate) self_mailbox: Mailbox<A::Message>,
-    pub(crate) progress: Progress,
-    pub(crate) kill_switch: KillSwitch,
-    pub(crate) actor_state: AtomicState,
+    progress: Progress,
+    kill_switch: KillSwitch,
+    actor_state: AtomicState,
 }
 
 impl<A: Actor> ActorContext<A> {
     pub fn new(self_mailbox: Mailbox<A::Message>, kill_switch: KillSwitch) -> Self {
+        let actor_instance_name = self_mailbox.actor_instance_name();
         ActorContext {
             inner: ActorContextInner {
+                actor_instance_name,
                 self_mailbox,
                 progress: Progress::default(),
                 kill_switch,
@@ -127,6 +130,10 @@ impl<A: Actor> ActorContext<A> {
             }
             .into(),
         }
+    }
+
+    pub fn actor_instance_name(&self) -> &str {
+        &self.actor_instance_name
     }
 
     /// This function returns a guard that prevents any supervisor from identifying the
@@ -144,10 +151,13 @@ impl<A: Actor> ActorContext<A> {
     /// This should rarely be used.
     /// For instance, when quitting from the process_message function, prefer simply
     /// returning `Error(ActorTermination::Failure(..))`
-    pub fn kill_switch(&self) -> KillSwitch {
-        self.kill_switch.clone()
+    pub fn kill_switch(&self) -> &KillSwitch {
+        &self.kill_switch
     }
 
+    pub(crate) fn progress(&self,) -> &Progress {
+        &self.progress
+    }
     /// Record some progress.
     /// This function is only useful when implementing actors that may takes more than
     /// `HEARTBEAT` to process a single message.
@@ -157,8 +167,8 @@ impl<A: Actor> ActorContext<A> {
         self.progress.record_progress();
     }
 
-    pub(crate) fn is_paused(&self) -> bool {
-        self.actor_state.get_state() == ActorState::Paused
+    pub(crate) fn get_state(&self) -> ActorState {
+        self.actor_state.get_state()
     }
 
     pub(crate) fn pause(&mut self) {
@@ -167,6 +177,10 @@ impl<A: Actor> ActorContext<A> {
 
     pub(crate) fn resume(&mut self) {
         self.actor_state.resume();
+    }
+
+    pub(crate) fn terminate(&mut self) {
+        self.actor_state.terminate();
     }
 }
 

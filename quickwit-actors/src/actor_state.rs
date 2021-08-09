@@ -57,7 +57,7 @@ impl Default for AtomicState {
 
 impl AtomicState {
     pub fn pause(&self) {
-        self.0.compare_exchange(
+        let _ = self.0.compare_exchange(
             ActorState::Running as u32,
             ActorState::Paused as u32,
             Ordering::SeqCst,
@@ -66,7 +66,7 @@ impl AtomicState {
     }
 
     pub fn resume(&self) {
-        self.0.compare_exchange(
+        let _ = self.0.compare_exchange(
             ActorState::Paused as u32,
             ActorState::Running as u32,
             Ordering::SeqCst,

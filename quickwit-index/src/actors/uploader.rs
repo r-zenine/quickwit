@@ -209,7 +209,7 @@ impl AsyncActor for Uploader {
             split.split_id.clone(),
         );
         let metastore = self.metastore.clone();
-        let kill_switch = ctx.kill_switch();
+        let kill_switch = ctx.kill_switch().clone();
         tokio::task::spawn(async move {
             let run_upload_res = run_upload(split, split_storage, metastore).await;
             if run_upload_res.is_err() {
