@@ -120,7 +120,8 @@ async fn put_split_files_to_storage(
             file_size_in_bytes: *file_size_in_bytes,
         });
         let key = PathBuf::from(file_name);
-        let payload = quickwit_storage::PutPayload::from(split.split_scratch_dir.path().join(path));
+        let payload =
+            quickwit_storage::PutPayload::from(split.split_scratch_directory.path().join(path));
         let upload_res_future = async move {
             storage.put(&key, payload).await.with_context(|| {
                 format!(
@@ -227,12 +228,14 @@ impl AsyncActor for Uploader {
 
 #[cfg(test)]
 mod tests {
-    use quickwit_actors::TestContext;
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
     use quickwit_actors::Observation;
+    use quickwit_actors::TestContext;
     use quickwit_metastore::MockMetastore;
     use quickwit_storage::RamStorage;
+
+    use crate::models::ScratchDirectory;
 
     use super::*;
 
@@ -255,9 +258,12 @@ mod tests {
         let index_storage: Arc<dyn Storage> = Arc::new(ram_storage.clone());
         let uploader = Uploader::new(Arc::new(mock_metastore), index_storage.clone(), mailbox);
         let uploader_handle = uploader.spawn(KillSwitch::default());
-        let scratch_dir = tempfile::tempdir()?;
-        std::fs::write(scratch_dir.path().join("anyfile"), &b"bubu"[..])?;
-        std::fs::write(scratch_dir.path().join("anyfile2"), &b"bubu2"[..])?;
+        let split_scratch_directory = ScratchDirectory::try_new_temp()?;
+        std::fs::write(split_scratch_directory.path().join("anyfile"), &b"bubu"[..])?;
+        std::fs::write(
+            split_scratch_directory.path().join("anyfile2"),
+            &b"bubu2"[..],
+        )?;
         let files_to_upload = vec![
             (PathBuf::from("anyfile"), 4),
             (PathBuf::from("anyfile2"), 5),
@@ -265,7 +271,8 @@ mod tests {
         let segment_ids = vec![SegmentId::from_uuid_string(
             "f45425f4-f67c-417e-9de7-8a8327115d47",
         )?];
-        TestContext::send_message(
+        let ctx = TestContext;
+        ctx.send_message(
             uploader_handle.mailbox(),
             PackagedSplit {
                 split_id: "test-split".to_string(),
@@ -274,10 +281,11 @@ mod tests {
                 size_in_bytes: 1_000,
                 files_to_upload,
                 segment_ids,
-                split_scratch_dir: scratch_dir,
+                split_scratch_directory,
                 num_docs: 10,
-            })
-            .await?;
+            },
+        )
+        .await?;
         assert_eq!(
             uploader_handle.process_pending_and_observe().await,
             Observation::Running(())

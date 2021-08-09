@@ -81,7 +81,7 @@ fn is_merge_required(segment_metas: &[SegmentMeta]) -> bool {
 /// CPU and IO, the longest once being the serialization of
 /// the inverted index. This phase is CPU bound.
 fn commit_split(split: &mut IndexedSplit, ctx: &ActorContext<Packager>) -> anyhow::Result<()> {
-    info!("commit-split");
+    info!(index=%split.index_id, split=?split, "commit-split");
     let _protected_zone_guard = ctx.protect_zone();
     split
         .index_writer
@@ -183,17 +183,18 @@ fn create_packaged_split(
         .iter()
         .map(|segment_meta| segment_meta.id())
         .collect();
-    let files_to_upload = list_files_to_upload(&segment_metas[..], split.temp_dir.path())
-        .with_context(|| {
-            format!(
-                "Failed to identify files for upload in packaging for split `{}`.",
-                split.split_id
-            )
-        })?;
+    let files_to_upload =
+        list_files_to_upload(&segment_metas[..], split.split_scratch_directory.path())
+            .with_context(|| {
+                format!(
+                    "Failed to identify files for upload in packaging for split `{}`.",
+                    split.split_id
+                )
+            })?;
     let packaged_split = PackagedSplit {
         index_id: split.index_id.clone(),
         split_id: split.split_id.to_string(),
-        split_scratch_dir: split.temp_dir,
+        split_scratch_directory: split.split_scratch_directory,
         num_docs,
         segment_ids,
         time_range: split.time_range.clone(),
@@ -211,7 +212,7 @@ impl SyncActor for Packager {
     ) -> Result<(), quickwit_actors::ActorTermination> {
         commit_split(&mut split, &ctx)?;
         let segment_metas = merge_segments_if_required(&mut split, &ctx)?;
-        build_hotcache(split.temp_dir.path())?;
+        build_hotcache(split.split_scratch_directory.path())?;
         let packaged_split = create_packaged_split(&segment_metas[..], split)?;
         ctx.send_message_blocking(&self.sink, packaged_split)?;
         Ok(())
@@ -223,25 +224,27 @@ mod tests {
     use std::ops::RangeInclusive;
     use std::time::Instant;
 
-    use quickwit_actors::TestContext;
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
     use quickwit_actors::Observation;
+    use quickwit_actors::TestContext;
     use tantivy::doc;
     use tantivy::schema::Schema;
     use tantivy::schema::FAST;
     use tantivy::schema::TEXT;
     use tantivy::Index;
 
+    use crate::models::ScratchDirectory;
+
     use super::*;
 
     fn make_indexed_split_for_test(segments_timestamps: &[&[i64]]) -> anyhow::Result<IndexedSplit> {
-        let temp_dir = tempfile::tempdir()?;
+        let split_scratch_directory = ScratchDirectory::try_new_temp()?;
         let mut schema_builder = Schema::builder();
         let text_field = schema_builder.add_text_field("text", TEXT);
         let timestamp_field = schema_builder.add_u64_field("timestamp", FAST);
         let schema = schema_builder.build();
-        let index = Index::create_in_dir(temp_dir.path(), schema)?;
+        let index = Index::create_in_dir(split_scratch_directory.path(), schema)?;
         let mut index_writer = index.writer_with_num_threads(1, 10_000_000)?;
         let mut timerange_opt: Option<RangeInclusive<i64>> = None;
         let mut num_docs = 0;
@@ -282,7 +285,7 @@ mod tests {
             start_time: Instant::now(),
             index,
             index_writer,
-            temp_dir,
+            split_scratch_directory,
         };
         Ok(indexed_split)
     }
@@ -294,9 +297,9 @@ mod tests {
         let packager = Packager::new(mailbox);
         let packager_handle = packager.spawn(KillSwitch::default());
         let indexed_split = make_indexed_split_for_test(&[&[1628203589, 1628203640]])?;
-        TestContext::send_message(
-            packager_handle.mailbox(),
-            indexed_split).await?;
+        let ctx = TestContext;
+        ctx.send_message(packager_handle.mailbox(), indexed_split)
+            .await?;
         assert_eq!(
             packager_handle.process_pending_and_observe().await,
             Observation::Running(())
@@ -313,7 +316,9 @@ mod tests {
         let packager = Packager::new(mailbox);
         let packager_handle = packager.spawn(KillSwitch::default());
         let indexed_split = make_indexed_split_for_test(&[&[1628203589], &[1628203640]])?;
-        TestContext::send_message(packager_handle.mailbox(), indexed_split).await?;
+        let ctx = TestContext;
+        ctx.send_message(packager_handle.mailbox(), indexed_split)
+            .await?;
         assert_eq!(
             packager_handle.process_pending_and_observe().await,
             Observation::Running(())

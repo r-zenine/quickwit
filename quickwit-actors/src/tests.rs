@@ -256,7 +256,10 @@ async fn test_timeouting_actor() {
         .await
         .is_ok());
     assert_eq!(buggy_handle.observe().await, Observation::Running(()));
-    assert!(buggy_mailbox.send_message(BuggyMessage::Block).await.is_ok());
+    assert!(buggy_mailbox
+        .send_message(BuggyMessage::Block)
+        .await
+        .is_ok());
     assert_eq!(buggy_handle.observe().await, Observation::Timeout(()));
     tokio::time::sleep(crate::HEARTBEAT).await;
     tokio::time::sleep(crate::HEARTBEAT).await;

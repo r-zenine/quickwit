@@ -18,15 +18,14 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io;
 use std::ops::RangeInclusive;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
 use quickwit_actors::Actor;
 use quickwit_actors::ActorContext;
+use quickwit_actors::ActorTermination;
 use quickwit_actors::Mailbox;
 use quickwit_actors::QueueCapacity;
 use quickwit_actors::SendError;
@@ -34,34 +33,18 @@ use quickwit_actors::SyncActor;
 use quickwit_index_config::IndexConfig;
 use tantivy::schema::Field;
 use tantivy::Document;
+use tracing::info;
 use tracing::warn;
 
 use crate::models::CommitPolicy;
 use crate::models::IndexedSplit;
 use crate::models::RawDocBatch;
+use crate::models::ScratchDirectory;
 
 #[derive(Clone, Default, Debug)]
 pub struct IndexerCounters {
     pub num_parse_errors: u64,
     pub num_docs: u64,
-}
-
-enum ScratchDirectory {
-    Path(PathBuf),
-    TempDir(tempfile::TempDir),
-}
-
-impl ScratchDirectory {
-    fn try_new_temp() -> io::Result<ScratchDirectory> {
-        let temp_dir = tempfile::tempdir()?;
-        Ok(ScratchDirectory::TempDir(temp_dir))
-    }
-    fn path(&self) -> &Path {
-        match self {
-            ScratchDirectory::Path(path) => path,
-            ScratchDirectory::TempDir(tempdir) => tempdir.path(),
-        }
-    }
 }
 
 pub struct Indexer {
@@ -101,7 +84,7 @@ impl SyncActor for Indexer {
         &mut self,
         batch: RawDocBatch,
         ctx: &ActorContext<Self>,
-    ) -> Result<(), quickwit_actors::ActorTermination> {
+    ) -> Result<(), ActorTermination> {
         let index_config = self.index_config.clone();
         let timestamp_field_opt = self.timestamp_field_opt;
         let commit_policy = self.commit_policy;
@@ -145,6 +128,20 @@ impl SyncActor for Indexer {
 
         Ok(())
     }
+
+    fn finalize(
+        &mut self,
+        termination: &ActorTermination,
+        ctx: &ActorContext<Self>,
+    ) -> anyhow::Result<()> {
+        info!("finalize");
+        if termination.is_failure() {
+            return Ok(());
+        }
+        self.send_to_packager(ctx)
+            .with_context(|| "Failed to send a last message to packager upon finalize method")?;
+        Ok(())
+    }
 }
 
 impl Indexer {
@@ -158,10 +155,11 @@ impl Indexer {
         sink: Mailbox<IndexedSplit>,
     ) -> anyhow::Result<Indexer> {
         let indexing_scratch_directory = if let Some(path) = indexing_directory {
-            ScratchDirectory::Path(path)
+            ScratchDirectory::new_in_path(path)
         } else {
             ScratchDirectory::try_new_temp()?
-        };
+        }
+        .into();
         let time_field_opt = index_config.timestamp_field();
         Ok(Indexer {
             index_id,
@@ -179,7 +177,7 @@ impl Indexer {
         let schema = self.index_config.schema();
         let indexed_split = IndexedSplit::new_in_dir(
             self.index_id.clone(),
-            self.indexing_scratch_directory.path(),
+            &self.indexing_scratch_directory,
             schema,
         )?;
         Ok(indexed_split)
@@ -214,10 +212,10 @@ mod tests {
 
     use crate::models::CommitPolicy;
     use crate::models::RawDocBatch;
-    use quickwit_actors::TestContext;
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
     use quickwit_actors::SyncActor;
+    use quickwit_actors::TestContext;
 
     use super::Indexer;
 
@@ -238,7 +236,8 @@ mod tests {
             mailbox,
         )?;
         let indexer_handle = indexer.spawn(KillSwitch::default());
-        TestContext::send_message(
+        let ctx = TestContext;
+        ctx.send_message(
             indexer_handle.mailbox(),
             RawDocBatch {
                 docs: vec![
@@ -246,14 +245,16 @@ mod tests {
                     "{\"body\": \"happy2\"}".to_string(),
                     "{".to_string(),
                 ],
-            })
-            .await?;
-        TestContext::send_message(
-        indexer_handle.mailbox(),
+            },
+        )
+        .await?;
+        ctx.send_message(
+            indexer_handle.mailbox(),
             RawDocBatch {
                 docs: vec!["{\"body\": \"happy3\"}".to_string()],
-            })
-            .await?;
+            },
+        )
+        .await?;
         let indexer_counters = indexer_handle
             .process_pending_and_observe()
             .await

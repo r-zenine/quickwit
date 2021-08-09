@@ -3,9 +3,10 @@ use crate::actor_handle::ActorHandle;
 use crate::mailbox::{create_mailbox, Command, Inbox};
 use crate::progress::Progress;
 use crate::{Actor, ActorContext, KillSwitch, ReceptionResult};
+use anyhow::Context;
 use async_trait::async_trait;
 use tokio::sync::watch;
-use tracing::debug;
+use tracing::{debug, error};
 
 /// An async actor is executed on a regular tokio task.
 ///
@@ -26,8 +27,8 @@ pub trait AsyncActor: Actor + Sized {
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorTermination>;
 
-    async fn finalize(&mut self, termination: ActorTermination) -> ActorTermination {
-        termination
+    async fn finalize(&mut self, _termination: &ActorTermination, _ctx: &ActorContext<Self>) -> anyhow::Result<()> {
+        Ok(())
     }
 
     #[doc(hidden)]
@@ -58,6 +59,7 @@ pub trait AsyncActor: Actor + Sized {
         );
         actor_handle
     }
+
 }
 
 async fn process_msg<A: Actor + AsyncActor>(
@@ -68,15 +70,8 @@ async fn process_msg<A: Actor + AsyncActor>(
     if !ctx.kill_switch.is_alive() {
         return Some(ActorTermination::KillSwitch);
     }
-
     ctx.progress.record_progress();
-    let default_message_opt = actor.default_message().and_then(|default_message| {
-        if ctx.self_mailbox.is_last_mailbox() {
-            None
-        } else {
-            Some(default_message)
-        }
-    });
+    let default_message_opt = actor.default_message();
     ctx.progress.record_progress();
 
     let reception_result = inbox
@@ -112,7 +107,10 @@ async fn process_msg<A: Actor + AsyncActor>(
                 }
             }
         }
-        ReceptionResult::Message(msg) => actor.process_message(msg, &ctx).await.err(),
+        ReceptionResult::Message(msg) => {
+            debug!(msg=?msg, actor=%actor.name(),"message-received");
+            actor.process_message(msg, &ctx).await.err()
+        }
         ReceptionResult::None => {
             if ctx.self_mailbox.is_last_mailbox() {
                 Some(ActorTermination::Terminated)
@@ -130,14 +128,16 @@ async fn async_actor_loop<A: AsyncActor>(
     mut ctx: ActorContext<A>,
 ) -> ActorTermination {
     loop {
-        debug!(name=%ctx.self_mailbox.actor_instance_name(), "message-loop");
         tokio::task::yield_now().await;
         let termination_opt = process_msg(&mut actor, &inbox, &mut ctx).await;
         if let Some(termination) = termination_opt {
             if termination.is_failure() {
                 ctx.kill_switch.kill();
             }
-            let termination = actor.finalize(termination).await;
+            if let Err(finalize_error)= actor.finalize(&termination, &ctx).await
+                .with_context(|| format!("Finalization of actor {}", actor.name())) {
+                error!(err=?finalize_error, "finalize_error");
+            }
             let final_state = actor.observable_state();
             let _ = ctx.state_tx.send(final_state);
             return termination;

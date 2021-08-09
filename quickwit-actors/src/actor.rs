@@ -2,11 +2,11 @@ use std::any::type_name;
 use std::fmt;
 use thiserror::Error;
 use tokio::sync::watch;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{
     progress::{Progress, ProtectZoneGuard},
-    KillSwitch, Mailbox, QueueCapacity, SendError,
+    AsyncActor, KillSwitch, Mailbox, QueueCapacity, SendError, SyncActor,
 };
 
 // While the lack of message cannot pause a problem with heartbeating,  sending a message to a saturated channel
@@ -136,38 +136,44 @@ impl<A: Actor> ActorContext<A> {
     pub(crate) fn resume(&mut self) {
         self.is_paused = false;
     }
+}
 
+impl<A: SyncActor> ActorContext<A> {
     /// Sends a message to the actor being the mailbox.
     ///
     /// This method hides logic to prevent an actor from being identified
     /// as frozen if the destination actor channel is saturated, and we
     /// are simply experiencing back pressure.
-    pub fn send_message_blocking<M>(
+    pub fn send_message_blocking<M: fmt::Debug>(
         &self,
         mailbox: &Mailbox<M>,
         msg: M,
     ) -> Result<(), crate::SendError> {
         let _guard = self.protect_zone();
+        debug!(from=%self.self_mailbox.actor_instance_name(), send=%mailbox.actor_instance_name(), msg=?msg);
         mailbox.send_blocking(msg)
-    }
-
-    /// `async` version of `send_message`
-    pub async fn send_message<M>(
-        &self,
-        mailbox: &Mailbox<M>,
-        msg: M,
-    ) -> Result<(), crate::SendError> {
-        let _guard = self.protect_zone();
-        mailbox.send_message(msg).await
     }
 }
 
+impl<A: AsyncActor> ActorContext<A> {
+    /// `async` version of `send_message`
+    pub async fn send_message<M: fmt::Debug>(
+        &self,
+        mailbox: &Mailbox<M>,
+        msg: M,
+    ) -> Result<(), crate::SendError> {
+        let _guard = self.protect_zone();
+        debug!(from=%self.self_mailbox.actor_instance_name(), send=%mailbox.actor_instance_name(), msg=?msg);
+        mailbox.send_message(msg).await
+    }
+}
 
 pub struct TestContext;
 
 impl TestContext {
     /// Sends a message to the actor being the mailbox.
     pub fn send_message_blocking<M>(
+        &self,
         mailbox: &Mailbox<M>,
         msg: M,
     ) -> Result<(), crate::SendError> {
@@ -176,6 +182,7 @@ impl TestContext {
 
     /// `async` version of `send_message`
     pub async fn send_message<M>(
+        &self,
         mailbox: &Mailbox<M>,
         msg: M,
     ) -> Result<(), crate::SendError> {

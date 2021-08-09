@@ -1,6 +1,6 @@
 use tokio::sync::watch;
 use tokio::task::spawn_blocking;
-use tracing::debug;
+use tracing::{debug, error, info};
 
 use crate::actor::ActorTermination;
 use crate::mailbox::{create_mailbox, Command, Inbox};
@@ -25,9 +25,14 @@ pub trait SyncActor: Actor + Sized {
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorTermination>;
 
-    /// Functionj
-    fn finalize(&mut self, termination: ActorTermination) -> ActorTermination {
-        termination
+    /// Hook  that can be set up to define what should happen upon actor termination.
+    /// This hook is called only once.
+    ///
+    /// It is always called regardless of the type of termination.
+    /// termination is passed as an argument to make it possible to act conditionnally
+    /// to the type of Termination.
+    fn finalize(&mut self, _termination: &ActorTermination, _ctx: &ActorContext<Self>) -> anyhow::Result<()> {
+        Ok(())
     }
 
     #[doc(hidden)]
@@ -48,7 +53,7 @@ pub trait SyncActor: Actor + Sized {
         let join_handle = spawn_blocking::<_, ActorTermination>(move || {
             let actor_name = self.name();
             let termination = sync_actor_loop(self, inbox, ctx);
-            debug!(cause=?termination, actor=%actor_name, "termination");
+            info!(cause=?termination, actor=%actor_name, "termination");
             termination
         });
         let actor_handle = ActorHandle::new(
@@ -112,7 +117,10 @@ fn process_msg<A: Actor + SyncActor>(
                 }
             }
         }
-        ReceptionResult::Message(msg) => actor.process_message(msg, &ctx).err(),
+        ReceptionResult::Message(msg) => {
+            debug!(msg=?msg, actor=%actor.name(),"message-received");
+            actor.process_message(msg, &ctx).err()
+        }
         ReceptionResult::None => {
             if ctx.self_mailbox.is_last_mailbox() {
                 Some(ActorTermination::Terminated)
@@ -133,9 +141,14 @@ fn sync_actor_loop<A: SyncActor>(
         let termination_opt = process_msg(&mut actor, &inbox, &mut ctx);
         if let Some(termination) = termination_opt {
             if termination.is_failure() {
+                error!(actor=?actor.name(), termination=?termination, "actor termination (failure)");
                 ctx.kill_switch.kill();
+            } else {
+                info!(actor=?actor.name(), termination=?termination, "actor termination (not a failure)");
             }
-            let termination = actor.finalize(termination);
+            if let Err(error) = actor.finalize(&termination, &ctx) {
+                error!(error=?error, "Finalizing failed");
+            }
             let final_state = actor.observable_state();
             let _ = ctx.state_tx.send(final_state);
             return termination;

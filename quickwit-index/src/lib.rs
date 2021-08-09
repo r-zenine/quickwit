@@ -27,6 +27,7 @@ use crate::actors::Packager;
 use crate::actors::Publisher;
 use crate::actors::Uploader;
 use crate::models::CommitPolicy;
+use quickwit_actors::ActorTermination;
 use quickwit_actors::AsyncActor;
 use quickwit_actors::KillSwitch;
 use quickwit_actors::SyncActor;
@@ -42,7 +43,7 @@ pub async fn spawn_indexing_pipeline(
     index_id: String,
     metastore: Arc<dyn Metastore>,
     storage_uri_resolver: StorageUriResolver,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ActorTermination> {
     info!(index_id=%index_id, "start-indexing-pipeline");
     let index_metadata = metastore.index_metadata(&index_id).await?;
     let index_storage = storage_uri_resolver.resolve(&index_metadata.index_uri)?;
@@ -77,18 +78,19 @@ pub async fn spawn_indexing_pipeline(
     .await?;
 
     let _source = source.spawn(kill_switch.clone());
-    Ok(())
+    let actor_termination = publisher_handler.join().await?;
+    Ok(actor_termination)
 }
 
 #[cfg(test)]
 mod tests {
 
-    use std::sync::Arc;
-    use std::time::Duration;
-
     use super::spawn_indexing_pipeline;
     use quickwit_metastore::IndexMetadata;
     use quickwit_metastore::MockMetastore;
+    use quickwit_metastore::SplitState;
+    use std::sync::Arc;
+    use tracing::info;
 
     #[tokio::test]
     async fn test_indexing_pipeline() -> anyhow::Result<()> {
@@ -106,13 +108,23 @@ mod tests {
                 };
                 Ok(index_metadata)
             });
-        spawn_indexing_pipeline(
+        metastore
+            .expect_stage_split()
+            .withf(move |index_id, split_metadata| -> bool {
+                (index_id == "test-index")
+                    && &split_metadata.split_id == "test-split"
+                    && split_metadata.time_range == Some(1628203589..=1628203640)
+                    && split_metadata.split_state == SplitState::New
+            })
+            .times(1)
+            .returning(|_, _| Ok(()));
+        let termination = spawn_indexing_pipeline(
             "test-index".to_string(),
             Arc::new(metastore),
             Default::default(),
         )
         .await?;
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        info!(termination=?termination);
         Ok(())
     }
 }

@@ -40,16 +40,18 @@ impl<Message, ObservableState: Clone + Send + fmt::Debug> ActorHandle<Message, O
     ) -> Self {
         let mut interval = tokio::time::interval(crate::HEARTBEAT);
         let kill_switch_clone = kill_switch.clone();
-        tokio::task::spawn(async move {
-            interval.tick().await;
-            while kill_switch.is_alive() {
-                interval.tick().await;
-                if !progress.harvest_changes() {
-                    kill_switch.kill();
-                    return;
-                }
-            }
-        });
+        let actor_instance_name = mailbox.actor_instance_name();
+        // tokio::task::spawn(async move {
+        //     interval.tick().await;
+        //     while kill_switch.is_alive() {
+        //         interval.tick().await;
+        //         if !progress.harvest_changes() {
+        //             error!(actor=%actor_instance_name, "actor-timeout");
+        //             kill_switch.kill();
+        //             return;
+        //         }
+        //     }
+        // });
         ActorHandle {
             mailbox,
             join_handle,
