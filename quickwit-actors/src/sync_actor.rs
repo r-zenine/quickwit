@@ -81,7 +81,7 @@ fn process_msg<A: Actor + SyncActor>(
     });
     ctx.progress.record_progress();
 
-    let reception_result = inbox.try_recv_msg(!ctx.is_paused(), default_message_opt);
+    let reception_result = inbox.try_recv_msg_blocking(!ctx.is_paused(), default_message_opt);
 
     ctx.progress.record_progress();
     if !ctx.kill_switch.is_alive() {

@@ -80,7 +80,7 @@ async fn process_msg<A: Actor + AsyncActor>(
     ctx.progress.record_progress();
 
     let reception_result = inbox
-        .try_recv_msg_async(!ctx.is_paused(), default_message_opt)
+        .try_recv_msg(!ctx.is_paused(), default_message_opt)
         .await;
 
     ctx.progress.record_progress();

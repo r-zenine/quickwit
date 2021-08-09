@@ -140,7 +140,7 @@ impl SyncActor for Indexer {
         // new message arrives.
         // We do need to implement timeout message in actors to get the right behavior.
         if commit_policy.should_commit(indexed_split.num_docs, indexed_split.start_time) {
-            self.send_to_packager()?;
+            self.send_to_packager(ctx)?;
         }
 
         Ok(())
@@ -196,13 +196,13 @@ impl Indexer {
         Ok((current_index_split, &mut self.counters))
     }
 
-    fn send_to_packager(&mut self) -> Result<(), SendError> {
+    fn send_to_packager(&mut self, ctx: &ActorContext<Self>) -> Result<(), SendError> {
         let indexed_split = if let Some(indexed_split) = self.current_split_opt.take() {
             indexed_split
         } else {
             return Ok(());
         };
-        self.sink.send_blocking(indexed_split)?;
+        ctx.send_message_blocking(&self.sink, indexed_split)?;
         Ok(())
     }
 }
@@ -214,6 +214,7 @@ mod tests {
 
     use crate::models::CommitPolicy;
     use crate::models::RawDocBatch;
+    use quickwit_actors::TestContext;
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
     use quickwit_actors::SyncActor;
@@ -237,9 +238,9 @@ mod tests {
             mailbox,
         )?;
         let indexer_handle = indexer.spawn(KillSwitch::default());
-        indexer_handle
-            .mailbox()
-            .send_async(RawDocBatch {
+        TestContext::send_message(
+            indexer_handle.mailbox(),
+            RawDocBatch {
                 docs: vec![
                     "{\"body\": \"happy\"}".to_string(),
                     "{\"body\": \"happy2\"}".to_string(),
@@ -247,9 +248,9 @@ mod tests {
                 ],
             })
             .await?;
-        indexer_handle
-            .mailbox()
-            .send_async(RawDocBatch {
+        TestContext::send_message(
+        indexer_handle.mailbox(),
+            RawDocBatch {
                 docs: vec!["{\"body\": \"happy3\"}".to_string()],
             })
             .await?;

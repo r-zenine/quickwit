@@ -136,4 +136,49 @@ impl<A: Actor> ActorContext<A> {
     pub(crate) fn resume(&mut self) {
         self.is_paused = false;
     }
+
+    /// Sends a message to the actor being the mailbox.
+    ///
+    /// This method hides logic to prevent an actor from being identified
+    /// as frozen if the destination actor channel is saturated, and we
+    /// are simply experiencing back pressure.
+    pub fn send_message_blocking<M>(
+        &self,
+        mailbox: &Mailbox<M>,
+        msg: M,
+    ) -> Result<(), crate::SendError> {
+        let _guard = self.protect_zone();
+        mailbox.send_blocking(msg)
+    }
+
+    /// `async` version of `send_message`
+    pub async fn send_message<M>(
+        &self,
+        mailbox: &Mailbox<M>,
+        msg: M,
+    ) -> Result<(), crate::SendError> {
+        let _guard = self.protect_zone();
+        mailbox.send_message(msg).await
+    }
+}
+
+
+pub struct TestContext;
+
+impl TestContext {
+    /// Sends a message to the actor being the mailbox.
+    pub fn send_message_blocking<M>(
+        mailbox: &Mailbox<M>,
+        msg: M,
+    ) -> Result<(), crate::SendError> {
+        mailbox.send_blocking(msg)
+    }
+
+    /// `async` version of `send_message`
+    pub async fn send_message<M>(
+        mailbox: &Mailbox<M>,
+        msg: M,
+    ) -> Result<(), crate::SendError> {
+        mailbox.send_message(msg).await
+    }
 }

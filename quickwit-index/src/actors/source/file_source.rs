@@ -75,7 +75,7 @@ impl AsyncActor for FileSource {
     async fn process_message(
         &mut self,
         _message: Self::Message,
-        _ctx: &ActorContext<Self>,
+        ctx: &ActorContext<Self>,
     ) -> Result<(), ActorTermination> {
         let limit_num_bytes = self.file_position.num_bytes + BATCH_NUM_BYTES_THRESHOLD;
         let mut reached_eof = false;
@@ -96,7 +96,7 @@ impl AsyncActor for FileSource {
             self.file_position.line_num += 1u64;
         }
         if !raw_doc_batch.docs.is_empty() {
-            self.sink.send_async(raw_doc_batch).await?;
+            ctx.send_message(&self.sink, raw_doc_batch).await?;
         }
         if reached_eof {
             return Err(ActorTermination::Terminated);

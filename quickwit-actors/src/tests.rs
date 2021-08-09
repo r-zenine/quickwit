@@ -131,7 +131,7 @@ impl AsyncActor for PingerAsyncSenderActor {
             SenderMessage::Ping => {
                 self.count += 1;
                 for peer in &self.peers {
-                    let _ = peer.send_async(Ping).await;
+                    let _ = peer.send_message(Ping).await;
                 }
             }
         }
@@ -149,12 +149,12 @@ async fn test_ping_actor() {
     let ping_recv_mailbox = ping_recv_handle.mailbox().clone();
     assert!(ping_sender_handle
         .mailbox()
-        .send_async(SenderMessage::Ping)
+        .send_message(SenderMessage::Ping)
         .await
         .is_ok());
     assert!(ping_sender_handle
         .mailbox()
-        .send_async(SenderMessage::AddPeer(ping_recv_mailbox.clone()))
+        .send_message(SenderMessage::AddPeer(ping_recv_mailbox.clone()))
         .await
         .is_ok());
     assert_eq!(
@@ -166,12 +166,12 @@ async fn test_ping_actor() {
     );
     assert!(ping_sender_handle
         .mailbox()
-        .send_async(SenderMessage::Ping)
+        .send_message(SenderMessage::Ping)
         .await
         .is_ok());
     assert!(ping_sender_handle
         .mailbox()
-        .send_async(SenderMessage::Ping)
+        .send_message(SenderMessage::Ping)
         .await
         .is_ok());
     assert_eq!(
@@ -199,7 +199,7 @@ async fn test_ping_actor() {
     );
     assert!(ping_sender_handle
         .mailbox()
-        .send_async(SenderMessage::Ping)
+        .send_message(SenderMessage::Ping)
         .await
         .is_err());
 }
@@ -252,11 +252,11 @@ async fn test_timeouting_actor() {
     let buggy_mailbox = buggy_handle.mailbox().clone();
     assert_eq!(buggy_handle.observe().await, Observation::Running(()));
     assert!(buggy_mailbox
-        .send_async(BuggyMessage::DoNothing)
+        .send_message(BuggyMessage::DoNothing)
         .await
         .is_ok());
     assert_eq!(buggy_handle.observe().await, Observation::Running(()));
-    assert!(buggy_mailbox.send_async(BuggyMessage::Block).await.is_ok());
+    assert!(buggy_mailbox.send_message(BuggyMessage::Block).await.is_ok());
     assert_eq!(buggy_handle.observe().await, Observation::Timeout(()));
     tokio::time::sleep(crate::HEARTBEAT).await;
     tokio::time::sleep(crate::HEARTBEAT).await;
@@ -269,7 +269,7 @@ async fn test_pause_sync_actor() {
     let kill_switch = KillSwitch::default();
     let ping_handle = actor.spawn(kill_switch);
     for _ in 0..1000 {
-        assert!(ping_handle.mailbox().send_async(Ping).await.is_ok());
+        assert!(ping_handle.mailbox().send_message(Ping).await.is_ok());
     }
     // Commands should be processed before message.
     assert!(ping_handle
@@ -296,7 +296,7 @@ async fn test_pause_async_actor() {
     let kill_switch = KillSwitch::default();
     let ping_handle = actor.spawn(kill_switch);
     for _ in 0u32..1000u32 {
-        assert!(ping_handle.mailbox().send_async(Ping).await.is_ok());
+        assert!(ping_handle.mailbox().send_message(Ping).await.is_ok());
     }
     assert!(ping_handle
         .mailbox()
@@ -386,7 +386,7 @@ async fn test_default_message_async() {
         AsyncActor::spawn(actor_with_default_msg, KillSwitch::default());
     assert!(actor_with_default_msg_handle
         .mailbox()
-        .send_async(Msg::Normal)
+        .send_message(Msg::Normal)
         .await
         .is_ok());
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -406,7 +406,7 @@ async fn test_default_message_sync() {
         SyncActor::spawn(actor_with_default_msg, KillSwitch::default());
     assert!(actor_with_default_msg_handle
         .mailbox()
-        .send_async(Msg::Normal)
+        .send_message(Msg::Normal)
         .await
         .is_ok());
     tokio::time::sleep(Duration::from_millis(10)).await;

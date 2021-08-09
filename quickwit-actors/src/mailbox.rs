@@ -119,15 +119,13 @@ impl<Message> Mailbox<Message> {
     /// SendError is returned if the user is already terminated.
     ///
     /// (See also [Self::send_blocking()])
-    pub async fn send_async(&self, msg: Message) -> Result<(), SendError> {
+    pub(crate) async fn send_message(&self, msg: Message) -> Result<(), SendError> {
         self.send_actor_message(ActorMessage::Message(msg)).await
     }
 
     /// Send a message to the actor in a blocking fashion.
-    /// When possible, prefer using [Self::send_async()].
-    ///
-    // TODO do we need a version with a deadline?
-    pub fn send_blocking(&self, msg: Message) -> Result<(), SendError> {
+    /// When possible, prefer using [Self::send()].
+    pub(crate) fn send_blocking(&self, msg: Message) -> Result<(), SendError> {
         self.sender
             .send(ActorMessage::Message(msg))
             .map_err(|_e| SendError)
@@ -167,7 +165,7 @@ impl<Message: fmt::Debug> Inbox<Message> {
         }
     }
 
-    pub async fn try_recv_msg_async(
+    pub(crate) async fn try_recv_msg(
         &self,
         message_enabled: bool,
         default_message_opt: Option<Message>,
@@ -195,7 +193,7 @@ impl<Message: fmt::Debug> Inbox<Message> {
         }
     }
 
-    pub fn try_recv_msg(
+    pub(crate) fn try_recv_msg_blocking(
         &self,
         message_enabled: bool,
         default_message_opt: Option<Message>, //< TODO this is not looking good...

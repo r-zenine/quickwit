@@ -198,7 +198,7 @@ impl AsyncActor for Uploader {
         // We send the future to the publisher right away.
         // That way the publisher will process the uploaded split in order as opposed to
         // publishing in the order splits finish their uploading.
-        self.sink.send_async(split_uploaded_rx).await?;
+        ctx.send_message(&self.sink, split_uploaded_rx).await?;
 
         // The permit will be added back manually to the semaphore the task after it is finished.
         let permit_guard = self.concurrent_upload_permits.acquire().await;
@@ -227,6 +227,7 @@ impl AsyncActor for Uploader {
 
 #[cfg(test)]
 mod tests {
+    use quickwit_actors::TestContext;
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
     use quickwit_actors::Observation;
@@ -264,9 +265,9 @@ mod tests {
         let segment_ids = vec![SegmentId::from_uuid_string(
             "f45425f4-f67c-417e-9de7-8a8327115d47",
         )?];
-        uploader_handle
-            .mailbox()
-            .send_async(PackagedSplit {
+        TestContext::send_message(
+            uploader_handle.mailbox(),
+            PackagedSplit {
                 split_id: "test-split".to_string(),
                 index_id: "test-index".to_string(),
                 time_range: Some(1_628_203_589i64..=1_628_203_640i64),

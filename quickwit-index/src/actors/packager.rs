@@ -213,7 +213,7 @@ impl SyncActor for Packager {
         let segment_metas = merge_segments_if_required(&mut split, &ctx)?;
         build_hotcache(split.temp_dir.path())?;
         let packaged_split = create_packaged_split(&segment_metas[..], split)?;
-        self.sink.send_blocking(packaged_split)?;
+        ctx.send_message_blocking(&self.sink, packaged_split)?;
         Ok(())
     }
 }
@@ -223,6 +223,7 @@ mod tests {
     use std::ops::RangeInclusive;
     use std::time::Instant;
 
+    use quickwit_actors::TestContext;
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
     use quickwit_actors::Observation;
@@ -293,7 +294,9 @@ mod tests {
         let packager = Packager::new(mailbox);
         let packager_handle = packager.spawn(KillSwitch::default());
         let indexed_split = make_indexed_split_for_test(&[&[1628203589, 1628203640]])?;
-        packager_handle.mailbox().send_async(indexed_split).await?;
+        TestContext::send_message(
+            packager_handle.mailbox(),
+            indexed_split).await?;
         assert_eq!(
             packager_handle.process_pending_and_observe().await,
             Observation::Running(())
@@ -310,7 +313,7 @@ mod tests {
         let packager = Packager::new(mailbox);
         let packager_handle = packager.spawn(KillSwitch::default());
         let indexed_split = make_indexed_split_for_test(&[&[1628203589], &[1628203640]])?;
-        packager_handle.mailbox().send_async(indexed_split).await?;
+        TestContext::send_message(packager_handle.mailbox(), indexed_split).await?;
         assert_eq!(
             packager_handle.process_pending_and_observe().await,
             Observation::Running(())

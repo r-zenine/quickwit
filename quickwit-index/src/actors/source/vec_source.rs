@@ -63,7 +63,7 @@ impl AsyncActor for VecSource {
     async fn process_message(
         &mut self,
         _message: Self::Message,
-        _ctx: &ActorContext<Self>,
+        ctx: &ActorContext<Self>,
     ) -> Result<(), ActorTermination> {
         let line_docs: Vec<String> = self.items[self.next_item_id..]
             .iter()
@@ -78,7 +78,7 @@ impl AsyncActor for VecSource {
             docs: line_docs,
             // checkpoint: Checkpoint::default(),
         };
-        self.sink.send_async(batch).await?;
+        ctx.send_message(&self.sink, batch).await?;
         Ok(())
     }
 }
