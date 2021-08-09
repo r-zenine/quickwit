@@ -72,7 +72,6 @@ async fn process_msg<A: Actor + AsyncActor>(
     if !ctx.kill_switch().is_alive() {
         return Some(ActorTermination::KillSwitch);
     }
-    dbg!(&reception_result);
     match reception_result {
         ReceptionResult::Command(cmd) => {
             match cmd {

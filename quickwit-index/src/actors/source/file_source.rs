@@ -25,6 +25,7 @@ use quickwit_actors::ActorContext;
 use quickwit_actors::ActorTermination;
 use quickwit_actors::AsyncActor;
 use quickwit_actors::Mailbox;
+use tracing::info;
 use std::io;
 use std::path::Path;
 use tokio::fs::File;
@@ -99,7 +100,7 @@ impl AsyncActor for FileSource {
             ctx.send_message(&self.sink, raw_doc_batch).await?;
         }
         if reached_eof {
-            dbg!("EOF");
+            info!("EOF");
             return Err(ActorTermination::Terminated);
         }
         Ok(())
