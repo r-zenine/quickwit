@@ -5,8 +5,7 @@ use tokio::time::timeout;
 use tracing::error;
 
 use crate::mailbox::Command;
-use crate::progress::Progress;
-use crate::{ActorTermination, KillSwitch, Mailbox, Observation};
+use crate::{Actor, ActorContext, ActorTermination, Mailbox, Observation};
 
 /// An Actor Handle serves as an address to communicate with an actor.
 ///
@@ -17,51 +16,53 @@ use crate::{ActorTermination, KillSwitch, Mailbox, Observation};
 /// Because `ActorHandle`'s generic types are Message and Observable, as opposed
 /// to the actor type, `ActorHandle` are interchangeable.
 /// It makes it possible to plug different implementations, have actor proxy etc.
-pub struct ActorHandle<Message, ObservableState> {
-    mailbox: Mailbox<Message>,
+pub struct ActorHandle<A: Actor> {
+    actor_context: ActorContext<A>,
+    last_state: watch::Receiver<A::ObservableState>,
     join_handle: JoinHandle<ActorTermination>,
-    kill_switch: KillSwitch,
-    last_state: watch::Receiver<ObservableState>,
 }
 
-impl<M, ObservableState> fmt::Debug for ActorHandle<M, ObservableState> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ActorHandle({})", self.mailbox.actor_instance_name())
+impl<A: Actor> fmt::Debug for ActorHandle<A> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ActorHandle")
+            .field("name", &self.actor_context.self_mailbox.actor_instance_name())
+            .finish()
     }
 }
 
-impl<Message, ObservableState: Clone + Send + fmt::Debug> ActorHandle<Message, ObservableState> {
+impl<A: Actor> ActorHandle<A> {
     pub(crate) fn new(
-        mailbox: Mailbox<Message>,
-        last_state: watch::Receiver<ObservableState>,
+        last_state: watch::Receiver<A::ObservableState>,
         join_handle: JoinHandle<ActorTermination>,
-        progress: Progress,
-        kill_switch: KillSwitch,
+        ctx: ActorContext<A>
     ) -> Self {
         let mut interval = tokio::time::interval(crate::HEARTBEAT);
-        let kill_switch_clone = kill_switch.clone();
-        let actor_instance_name = mailbox.actor_instance_name();
-        // tokio::task::spawn(async move {
-        //     interval.tick().await;
-        //     while kill_switch.is_alive() {
-        //         interval.tick().await;
-        //         if !progress.harvest_changes() {
-        //             error!(actor=%actor_instance_name, "actor-timeout");
-        //             kill_switch.kill();
-        //             return;
-        //         }
-        //     }
-        // });
+        let actor_instance_name = ctx.self_mailbox.actor_instance_name();
+        let ctx_clone = ctx.clone();
+        tokio::task::spawn(async move {
+            interval.tick().await;
+            while ctx.kill_switch.is_alive() {
+                interval.tick().await;
+                if !ctx.progress.harvest_changes() {
+                    if ctx.actor_state.is_terminated() {
+                        return;
+                    }
+                    error!(actor=%actor_instance_name, "actor-timeout");
+                    ctx.kill_switch.kill();
+                    return;
+                }
+            }
+        });
         ActorHandle {
-            mailbox,
             join_handle,
-            kill_switch: kill_switch_clone,
             last_state,
+            actor_context: ctx_clone,
         }
     }
 
-    pub fn mailbox(&self) -> &Mailbox<Message> {
-        &self.mailbox
+    pub fn mailbox(&self) -> &Mailbox<A::Message> {
+        &self.actor_context.self_mailbox
     }
 
     /// Process all of the pending message, and returns a snapshot of
@@ -74,10 +75,11 @@ impl<Message, ObservableState: Clone + Send + fmt::Debug> ActorHandle<Message, O
     ///
     /// This method timeout if reaching the end of the message takes more than an HEARTBEAT.
     /// Hence, it is only useful or unit tests.
-    pub async fn process_pending_and_observe(&self) -> Observation<ObservableState> {
+    pub async fn process_pending_and_observe(&self) -> Observation<A::ObservableState> {
         let (tx, rx) = oneshot::channel();
         if self
-            .mailbox
+            .actor_context
+            .self_mailbox
             .send_actor_message(ActorMessage::Observe(tx))
             .await
             .is_err()
@@ -110,10 +112,11 @@ impl<Message, ObservableState: Clone + Send + fmt::Debug> ActorHandle<Message, O
     ///
     /// If a message is currently being processed, the observation will be
     /// after its processing has finished.
-    pub async fn observe(&self) -> Observation<ObservableState> {
+    pub async fn observe(&self) -> Observation<A::ObservableState> {
         let (tx, rx) = oneshot::channel();
         if self
-            .mailbox
+            .actor_context
+            .self_mailbox
             .send_command(Command::Observe(tx))
             .await
             .is_err()
@@ -126,7 +129,7 @@ impl<Message, ObservableState: Clone + Send + fmt::Debug> ActorHandle<Message, O
             Ok(Ok(())) => Observation::Running(state),
             Ok(Err(_)) => Observation::Terminated(state),
             Err(_) => {
-                if self.kill_switch.is_alive() {
+                if self.actor_context.kill_switch.is_alive() {
                     Observation::Timeout(state)
                 } else {
                     self.join_handle.abort();
@@ -136,7 +139,7 @@ impl<Message, ObservableState: Clone + Send + fmt::Debug> ActorHandle<Message, O
         }
     }
 
-    pub fn last_observation(&self) -> ObservableState {
+    pub fn last_observation(&self) -> A::ObservableState {
         self.last_state.borrow().clone()
     }
 }

@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use flume::RecvTimeoutError;
 use flume::TryRecvError;
+use tracing::info;
 use std::hash::Hash;
 use tokio::sync::oneshot;
 use uuid::Uuid;
@@ -45,6 +46,7 @@ impl<Message> Clone for Mailbox<Message> {
 
 impl<Message> Mailbox<Message> {
     pub(crate) fn is_last_mailbox(&self) -> bool {
+        info!(actor=%self.actor_instance_name(),count=Arc::strong_count(&self.inner));
         Arc::strong_count(&self.inner) == 1
     }
 }

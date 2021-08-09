@@ -38,6 +38,7 @@ mod sync_actor;
 
 #[cfg(test)]
 mod tests;
+mod actor_state;
 
 pub use self::actor::ActorContext;
 pub use self::mailbox::{

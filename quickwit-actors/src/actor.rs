@@ -1,10 +1,11 @@
-use std::any::type_name;
 use std::fmt;
+use std::ops::Deref;
+use std::{any::type_name, sync::Arc};
 use thiserror::Error;
-use tokio::sync::watch;
 use tracing::{debug, error};
 
 use crate::{
+    actor_state::{ActorState, AtomicState},
     progress::{Progress, ProtectZoneGuard},
     AsyncActor, KillSwitch, Mailbox, QueueCapacity, SendError, SyncActor,
 };
@@ -89,14 +90,45 @@ pub trait Actor: Send + Sync + 'static {
 
 // TODO hide all of this public stuff
 pub struct ActorContext<A: Actor> {
+    inner: Arc<ActorContextInner<A>>,
+}
+
+impl<A: Actor> Clone for ActorContext<A> {
+    fn clone(&self) -> Self {
+        ActorContext {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<A: Actor> Deref for ActorContext<A> {
+    type Target = ActorContextInner<A>;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.as_ref()
+    }
+}
+
+pub struct ActorContextInner<A: Actor> {
     pub(crate) self_mailbox: Mailbox<A::Message>,
     pub(crate) progress: Progress,
     pub(crate) kill_switch: KillSwitch,
-    pub(crate) state_tx: watch::Sender<A::ObservableState>,
-    pub(crate) is_paused: bool,
+    pub(crate) actor_state: AtomicState,
 }
 
 impl<A: Actor> ActorContext<A> {
+    pub fn new(self_mailbox: Mailbox<A::Message>, kill_switch: KillSwitch) -> Self {
+        ActorContext {
+            inner: ActorContextInner {
+                self_mailbox,
+                progress: Progress::default(),
+                kill_switch,
+                actor_state: AtomicState::default(),
+            }
+            .into(),
+        }
+    }
+
     /// This function returns a guard that prevents any supervisor from identifying the
     /// actor has dead.
     /// The protection last as long as the `ProtectZoneGuard` it returns.
@@ -126,15 +158,15 @@ impl<A: Actor> ActorContext<A> {
     }
 
     pub(crate) fn is_paused(&self) -> bool {
-        self.is_paused
+        self.actor_state.get_state() == ActorState::Paused
     }
 
     pub(crate) fn pause(&mut self) {
-        self.is_paused = true;
+        self.actor_state.pause();
     }
 
     pub(crate) fn resume(&mut self) {
-        self.is_paused = false;
+        self.actor_state.resume();
     }
 }
 

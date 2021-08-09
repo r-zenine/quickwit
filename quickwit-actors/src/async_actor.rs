@@ -1,11 +1,11 @@
 use crate::actor::ActorTermination;
 use crate::actor_handle::ActorHandle;
+use crate::actor_state::AtomicState;
 use crate::mailbox::{create_mailbox, Command, Inbox};
-use crate::progress::Progress;
 use crate::{Actor, ActorContext, KillSwitch, ReceptionResult};
 use anyhow::Context;
 use async_trait::async_trait;
-use tokio::sync::watch;
+use tokio::sync::watch::{self, Sender};
 use tracing::{debug, error};
 
 /// An async actor is executed on a regular tokio task.
@@ -32,32 +32,25 @@ pub trait AsyncActor: Actor + Sized {
     }
 
     #[doc(hidden)]
-    fn spawn(self, kill_switch: KillSwitch) -> ActorHandle<Self::Message, Self::ObservableState> {
+    fn spawn(self, kill_switch: KillSwitch) -> ActorHandle<Self> {
         debug!(actor_name=%self.name(),"spawning-async-actor");
         let (state_tx, state_rx) = watch::channel(self.observable_state());
         let actor_name = self.name();
-        let progress = Progress::default();
         let queue_capacity = self.queue_capacity();
         let (mailbox, inbox) = create_mailbox(actor_name, queue_capacity);
+        let ctx = ActorContext::new(mailbox, kill_switch);
+        let ctx_clone = ctx.clone();
         let join_handle = tokio::spawn(async_actor_loop(
             self,
             inbox,
-            ActorContext {
-                self_mailbox: mailbox.clone(),
-                progress: progress.clone(),
-                kill_switch: kill_switch.clone(),
-                state_tx,
-                is_paused: false,
-            },
+            ctx,
+            state_tx
         ));
-        let actor_handle = ActorHandle::new(
-            mailbox.clone(),
+        ActorHandle::new(
             state_rx,
             join_handle,
-            progress,
-            kill_switch,
-        );
-        actor_handle
+            ctx_clone
+        )
     }
 
 }
@@ -66,6 +59,7 @@ async fn process_msg<A: Actor + AsyncActor>(
     actor: &mut A,
     inbox: &Inbox<A::Message>,
     ctx: &mut ActorContext<A>,
+    state_tx: &Sender<A::ObservableState>
 ) -> Option<ActorTermination> {
     if !ctx.kill_switch.is_alive() {
         return Some(ActorTermination::KillSwitch);
@@ -99,7 +93,7 @@ async fn process_msg<A: Actor + AsyncActor>(
                 }
                 Command::Observe(cb) => {
                     let state = actor.observable_state();
-                    let _ = ctx.state_tx.send(state);
+                    let _ = state_tx.send(state);
                     // We voluntarily ignore the error here. (An error only occurs if the
                     // sender dropped its receiver.)
                     let _ = cb.send(());
@@ -126,11 +120,13 @@ async fn async_actor_loop<A: AsyncActor>(
     mut actor: A,
     inbox: Inbox<A::Message>,
     mut ctx: ActorContext<A>,
+    state_tx: Sender<A::ObservableState>
 ) -> ActorTermination {
     loop {
         tokio::task::yield_now().await;
-        let termination_opt = process_msg(&mut actor, &inbox, &mut ctx).await;
+        let termination_opt = process_msg(&mut actor, &inbox, &mut ctx, &state_tx).await;
         if let Some(termination) = termination_opt {
+            ctx.actor_state.terminate();
             if termination.is_failure() {
                 ctx.kill_switch.kill();
             }
@@ -139,7 +135,7 @@ async fn async_actor_loop<A: AsyncActor>(
                 error!(err=?finalize_error, "finalize_error");
             }
             let final_state = actor.observable_state();
-            let _ = ctx.state_tx.send(final_state);
+            let _ = state_tx.send(final_state);
             return termination;
         }
     }

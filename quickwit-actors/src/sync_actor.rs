@@ -1,8 +1,9 @@
-use tokio::sync::watch;
+use tokio::sync::watch::{self, Sender};
 use tokio::task::spawn_blocking;
 use tracing::{debug, error, info};
 
 use crate::actor::ActorTermination;
+use crate::actor_state::AtomicState;
 use crate::mailbox::{create_mailbox, Command, Inbox};
 use crate::progress::Progress;
 use crate::{Actor, ActorContext, ActorHandle, KillSwitch, ReceptionResult};
@@ -36,34 +37,25 @@ pub trait SyncActor: Actor + Sized {
     }
 
     #[doc(hidden)]
-    fn spawn(self, kill_switch: KillSwitch) -> ActorHandle<Self::Message, Self::ObservableState> {
+    fn spawn(self, kill_switch: KillSwitch) -> ActorHandle<Self> {
         let actor_name = self.name();
         debug!(actor_name=%actor_name,"spawning-sync-actor");
         let queue_capacity = self.queue_capacity();
         let (mailbox, inbox) = create_mailbox(actor_name, queue_capacity);
         let (state_tx, state_rx) = watch::channel(self.observable_state());
-        let progress = Progress::default();
-        let ctx = ActorContext {
-            progress: progress.clone(),
-            self_mailbox: mailbox.clone(),
-            kill_switch: kill_switch.clone(),
-            state_tx,
-            is_paused: false,
-        };
+        let ctx = ActorContext::new(mailbox, kill_switch);
+        let ctx_clone = ctx.clone();
         let join_handle = spawn_blocking::<_, ActorTermination>(move || {
             let actor_name = self.name();
-            let termination = sync_actor_loop(self, inbox, ctx);
+            let termination = sync_actor_loop(self, inbox, ctx, state_tx);
             info!(cause=?termination, actor=%actor_name, "termination");
             termination
         });
-        let actor_handle = ActorHandle::new(
-            mailbox.clone(),
+        ActorHandle::new(
             state_rx,
             join_handle,
-            progress,
-            kill_switch,
-        );
-        actor_handle
+            ctx_clone,
+        )
     }
 }
 
@@ -71,6 +63,7 @@ fn process_msg<A: Actor + SyncActor>(
     actor: &mut A,
     inbox: &Inbox<A::Message>,
     ctx: &mut ActorContext<A>,
+    state_tx: &Sender<A::ObservableState>
 ) -> Option<ActorTermination> {
     if !ctx.kill_switch.is_alive() {
         return Some(ActorTermination::KillSwitch);
@@ -109,7 +102,7 @@ fn process_msg<A: Actor + SyncActor>(
                 }
                 Command::Observe(cb) => {
                     let state = actor.observable_state();
-                    let _ = ctx.state_tx.send(state);
+                    let _ = state_tx.send(state);
                     // We voluntarily ignore the error here. (An error only occurs if the
                     // sender dropped its receiver.)
                     let _ = cb.send(());
@@ -136,10 +129,12 @@ fn sync_actor_loop<A: SyncActor>(
     mut actor: A,
     inbox: Inbox<A::Message>,
     mut ctx: ActorContext<A>,
+    state_tx: Sender<A::ObservableState>
 ) -> ActorTermination {
     loop {
-        let termination_opt = process_msg(&mut actor, &inbox, &mut ctx);
+        let termination_opt = process_msg(&mut actor, &inbox, &mut ctx, &state_tx);
         if let Some(termination) = termination_opt {
+            ctx.actor_state.terminate();
             if termination.is_failure() {
                 error!(actor=?actor.name(), termination=?termination, "actor termination (failure)");
                 ctx.kill_switch.kill();
@@ -150,7 +145,7 @@ fn sync_actor_loop<A: SyncActor>(
                 error!(error=?error, "Finalizing failed");
             }
             let final_state = actor.observable_state();
-            let _ = ctx.state_tx.send(final_state);
+            let _ = state_tx.send(final_state);
             return termination;
         }
     }
