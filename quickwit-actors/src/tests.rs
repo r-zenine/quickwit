@@ -3,6 +3,7 @@ use crate::Actor;
 use crate::KillSwitch;
 use crate::{ActorContext, ActorTermination, AsyncActor, Mailbox, Observation, SyncActor};
 use async_trait::async_trait;
+use tracing::info;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -141,6 +142,7 @@ impl AsyncActor for PingerAsyncSenderActor {
 
 #[tokio::test]
 async fn test_ping_actor() {
+    quickwit_common::setup_logging_for_tests();
     let kill_switch = KillSwitch::default();
     let ping_recv_handle = PingReceiverSyncActor::default().spawn(kill_switch.clone());
     let ping_sender_handle = PingerAsyncSenderActor::default().spawn(kill_switch.clone());
@@ -268,6 +270,7 @@ async fn test_timeouting_actor() {
 
 #[tokio::test]
 async fn test_pause_sync_actor() {
+    quickwit_common::setup_logging_for_tests();
     let actor = PingReceiverSyncActor::default();
     let kill_switch = KillSwitch::default();
     let ping_handle = actor.spawn(kill_switch);
@@ -295,6 +298,7 @@ async fn test_pause_sync_actor() {
 
 #[tokio::test]
 async fn test_pause_async_actor() {
+    quickwit_common::setup_logging_for_tests();
     let actor = PingReceiverAsyncActor::default();
     let kill_switch = KillSwitch::default();
     let ping_handle = actor.spawn(kill_switch);

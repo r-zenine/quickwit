@@ -62,8 +62,12 @@ impl<A: Actor> ActorHandle<A> {
         }
     }
 
+    pub fn ctx(&self,) -> &ActorContext<A> {
+        &self.actor_context
+    }
+
     pub fn mailbox(&self) -> &Mailbox<A::Message> {
-        &self.actor_context.self_mailbox
+        self.actor_context.mailbox()
     }
 
     /// Process all of the pending message, and returns a snapshot of
@@ -116,7 +120,7 @@ impl<A: Actor> ActorHandle<A> {
         let (tx, rx) = oneshot::channel();
         if self
             .actor_context
-            .self_mailbox
+            .mailbox()
             .send_command(Command::Observe(tx))
             .await
             .is_err()

@@ -111,7 +111,7 @@ impl<A: Actor> Deref for ActorContext<A> {
 
 pub struct ActorContextInner<A: Actor> {
     actor_instance_name: String,
-    pub(crate) self_mailbox: Mailbox<A::Message>,
+    self_mailbox: Mailbox<A::Message>,
     progress: Progress,
     kill_switch: KillSwitch,
     actor_state: AtomicState,
@@ -130,6 +130,10 @@ impl<A: Actor> ActorContext<A> {
             }
             .into(),
         }
+    }
+
+    pub fn mailbox(&self) -> &Mailbox<A::Message> {
+        &self.self_mailbox
     }
 
     pub fn actor_instance_name(&self) -> &str {

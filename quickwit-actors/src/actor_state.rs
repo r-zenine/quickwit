@@ -20,7 +20,6 @@
 
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 #[repr(u32)]
 #[derive(Clone, Debug, Copy, Eq, PartialEq)]
@@ -42,16 +41,15 @@ impl From<u32> for ActorState {
 
 impl From<ActorState> for AtomicState {
     fn from(state: ActorState) -> Self {
-        AtomicState(Arc::new(AtomicU32::from(state as u32)))
+        AtomicState(AtomicU32::from(state as u32))
     }
 }
 
-#[derive(Clone)]
-pub struct AtomicState(Arc<AtomicU32>);
+pub struct AtomicState(AtomicU32);
 
 impl Default for AtomicState {
     fn default() -> Self {
-        AtomicState(Arc::new(AtomicU32::new(ActorState::Running as u32)))
+        AtomicState(AtomicU32::new(ActorState::Running as u32))
     }
 }
 
@@ -77,10 +75,6 @@ impl AtomicState {
     pub fn terminate(&self) {
         self.0
             .store(ActorState::Terminated as u32, Ordering::Release);
-    }
-
-    pub fn is_terminated(&self) -> bool {
-        self.get_state() == ActorState::Terminated
     }
 
     pub fn get_state(&self) -> ActorState {

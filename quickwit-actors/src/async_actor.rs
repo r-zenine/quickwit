@@ -106,7 +106,7 @@ async fn process_msg<A: Actor + AsyncActor>(
             actor.process_message(msg, &ctx).await.err()
         }
         ReceptionResult::None => {
-            if ctx.self_mailbox.is_last_mailbox() {
+            if ctx.mailbox().is_last_mailbox() {
                 Some(ActorTermination::Terminated)
             } else {
                 None

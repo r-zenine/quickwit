@@ -69,13 +69,7 @@ fn process_msg<A: Actor + SyncActor>(
     }
 
     ctx.progress().record_progress();
-    let default_message_opt = actor.default_message().and_then(|default_message| {
-        if ctx.self_mailbox.is_last_mailbox() {
-            None
-        } else {
-            Some(default_message)
-        }
-    });
+    let default_message_opt = actor.default_message();
     ctx.progress().record_progress();
 
     let reception_result = inbox.try_recv_msg_blocking(ctx.get_state() == ActorState::Running, default_message_opt);
@@ -114,7 +108,7 @@ fn process_msg<A: Actor + SyncActor>(
             actor.process_message(msg, &ctx).err()
         }
         ReceptionResult::None => {
-            if ctx.self_mailbox.is_last_mailbox() {
+            if ctx.mailbox().is_last_mailbox() {
                 Some(ActorTermination::Terminated)
             } else {
                 None
