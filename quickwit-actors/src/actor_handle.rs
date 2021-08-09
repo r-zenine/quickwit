@@ -1,13 +1,7 @@
-use std::fmt;
-use tokio::sync::{oneshot, watch};
-use tokio::task::{JoinError, JoinHandle};
-use tokio::time::timeout;
-use tracing::error;
-
 use crate::actor_state::ActorState;
 use crate::mailbox::Command;
-use crate::{Actor, ActorContext, ActorTermination, Mailbox, Observation};
-
+use crate::{Actor, ActorContext, ActorTermination, Observation};
+use std::fmt;
 /// An Actor Handle serves as an address to communicate with an actor.
 ///
 /// It is lightweight to clone it.
@@ -16,7 +10,12 @@ use crate::{Actor, ActorContext, ActorTermination, Mailbox, Observation};
 ///
 /// Because `ActorHandle`'s generic types are Message and Observable, as opposed
 /// to the actor type, `ActorHandle` are interchangeable.
-/// It makes it possible to plug different implementations, have actor proxy etc.
+/// It makes it possible to plug different implementations, have actor proxy etc.use std::fmt;
+use tokio::sync::{oneshot, watch};
+use tokio::task::{JoinError, JoinHandle};
+use tokio::time::timeout;
+use tracing::error;
+
 pub struct ActorHandle<A: Actor> {
     actor_context: ActorContext<A>,
     last_state: watch::Receiver<A::ObservableState>,
@@ -36,7 +35,7 @@ impl<A: Actor> ActorHandle<A> {
     pub(crate) fn new(
         last_state: watch::Receiver<A::ObservableState>,
         join_handle: JoinHandle<ActorTermination>,
-        ctx: ActorContext<A>
+        ctx: ActorContext<A>,
     ) -> Self {
         let mut interval = tokio::time::interval(crate::HEARTBEAT);
         let actor_instance_name = ctx.actor_instance_name().to_string();
@@ -62,14 +61,6 @@ impl<A: Actor> ActorHandle<A> {
         }
     }
 
-    pub fn ctx(&self,) -> &ActorContext<A> {
-        &self.actor_context
-    }
-
-    pub fn mailbox(&self) -> &Mailbox<A::Message> {
-        self.actor_context.mailbox()
-    }
-
     /// Process all of the pending message, and returns a snapshot of
     /// the observable state of the actor after this.
     ///
@@ -83,6 +74,7 @@ impl<A: Actor> ActorHandle<A> {
     pub async fn process_pending_and_observe(&self) -> Observation<A::ObservableState> {
         let (tx, rx) = oneshot::channel();
         if self
+            .actor_context
             .mailbox()
             .send_actor_message(ActorMessage::Observe(tx))
             .await
@@ -104,7 +96,11 @@ impl<A: Actor> ActorHandle<A> {
     /// Terminates the actor, regardless of whether there are pending messages or not.
     pub async fn finish(&self) {
         let (tx, rx) = oneshot::channel();
-        let _ = self.mailbox().send_command(Command::Stop(tx)).await;
+        let _ = self
+            .actor_context
+            .mailbox()
+            .send_command(Command::Stop(tx))
+            .await;
         let _ = rx.await;
     }
 

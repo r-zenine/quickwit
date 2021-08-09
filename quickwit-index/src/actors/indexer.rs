@@ -235,10 +235,10 @@ mod tests {
             commit_policy,
             mailbox,
         )?;
-        let indexer_handle = indexer.spawn(KillSwitch::default());
+        let (indexer_mailbox, indexer_handle) = indexer.spawn(KillSwitch::default());
         let ctx = TestContext;
         ctx.send_message(
-            indexer_handle.mailbox(),
+            &indexer_mailbox,
             RawDocBatch {
                 docs: vec![
                     "{\"body\": \"happy\"}".to_string(),
@@ -249,7 +249,7 @@ mod tests {
         )
         .await?;
         ctx.send_message(
-            indexer_handle.mailbox(),
+            &indexer_mailbox,
             RawDocBatch {
                 docs: vec!["{\"body\": \"happy3\"}".to_string()],
             },

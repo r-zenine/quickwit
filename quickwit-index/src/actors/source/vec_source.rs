@@ -101,7 +101,7 @@ mod tests {
             3,
             mailbox,
         );
-        let vec_source_handle = vec_source.spawn(KillSwitch::default());
+        let (_vec_source_mailbox, vec_source_handle) = vec_source.spawn(KillSwitch::default());
         let actor_termination = vec_source_handle.join().await?;
         assert!(matches!(actor_termination, ActorTermination::Terminated));
         let batch = inbox.drain_available_message_for_test();

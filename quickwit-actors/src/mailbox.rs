@@ -24,9 +24,9 @@ use std::sync::Arc;
 
 use flume::RecvTimeoutError;
 use flume::TryRecvError;
-use tracing::info;
 use std::hash::Hash;
 use tokio::sync::oneshot;
+use tracing::info;
 use uuid::Uuid;
 
 use crate::actor_handle::ActorMessage;

@@ -159,7 +159,7 @@ impl<A: Actor> ActorContext<A> {
         &self.kill_switch
     }
 
-    pub(crate) fn progress(&self,) -> &Progress {
+    pub(crate) fn progress(&self) -> &Progress {
         &self.progress
     }
     /// Record some progress.

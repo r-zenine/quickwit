@@ -52,30 +52,22 @@ pub async fn spawn_indexing_pipeline(
     // TODO add a supervisition that checks the progress of all of these actors.
     let kill_switch = KillSwitch::default();
     let publisher = Publisher::new(metastore.clone());
-    let publisher_handler = publisher.spawn(kill_switch.clone());
-    let uploader = Uploader::new(
-        metastore,
-        index_storage,
-        publisher_handler.mailbox().clone(),
-    );
-    let uploader_handler = uploader.spawn(kill_switch.clone());
-    let packager = Packager::new(uploader_handler.mailbox().clone());
-    let packager_handler = packager.spawn(kill_switch.clone());
+    let (publisher_mailbox, publisher_handler) = publisher.spawn(kill_switch.clone());
+    let uploader = Uploader::new(metastore, index_storage, publisher_mailbox);
+    let (uploader_mailbox, _uploader_handler) = uploader.spawn(kill_switch.clone());
+    let packager = Packager::new(uploader_mailbox);
+    let (packager_mailbox, _packager_handler) = packager.spawn(kill_switch.clone());
     let indexer = Indexer::try_new(
         index_id,
         index_metadata.index_config.into(),
         None,
         CommitPolicy::default(),
-        packager_handler.mailbox().clone(),
+        packager_mailbox,
     )?;
-    let indexer_handler = indexer.spawn(kill_switch.clone());
+    let (indexer_mailbox, _indexer_handler) = indexer.spawn(kill_switch.clone());
 
     // TODO the source is hardcoded here.
-    let source = FileSource::try_new(
-        Path::new("data/test_corpus.json"),
-        indexer_handler.mailbox().clone(),
-    )
-    .await?;
+    let source = FileSource::try_new(Path::new("data/test_corpus.json"), indexer_mailbox).await?;
 
     let _source = source.spawn(kill_switch.clone());
     let actor_termination = publisher_handler.join().await?;

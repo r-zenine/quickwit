@@ -119,7 +119,7 @@ mod tests {
         quickwit_common::setup_logging_for_tests();
         let (mailbox, inbox) = create_test_mailbox();
         let file_source = FileSource::try_new(Path::new("data/test_corpus.json"), mailbox).await?;
-        let file_source_handle = file_source.spawn(KillSwitch::default());
+        let (_file_source_mailbox, file_source_handle) = file_source.spawn(KillSwitch::default());
         let actor_termination = file_source_handle.join().await?;
         assert!(matches!(actor_termination, ActorTermination::Terminated));
         let batch = inbox.drain_available_message_for_test();

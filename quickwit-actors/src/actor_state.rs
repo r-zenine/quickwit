@@ -89,15 +89,17 @@ mod tests {
     enum Operation {
         Pause,
         Resume,
-        Terminate
+        Terminate,
     }
 
     impl Operation {
         fn apply(&self, state: &AtomicState) {
             match self {
-                Operation::Pause => { state.pause(); }
-                Operation::Resume => { state.resume() }
-                Operation::Terminate => { state.terminate() }
+                Operation::Pause => {
+                    state.pause();
+                }
+                Operation::Resume => state.resume(),
+                Operation::Terminate => state.terminate(),
             }
         }
     }
@@ -112,14 +114,34 @@ mod tests {
     fn test_atomic_state_from_running() {
         test_transition(ActorState::Running, Operation::Pause, ActorState::Paused);
         test_transition(ActorState::Running, Operation::Resume, ActorState::Running);
-        test_transition(ActorState::Running, Operation::Terminate, ActorState::Terminated);
+        test_transition(
+            ActorState::Running,
+            Operation::Terminate,
+            ActorState::Terminated,
+        );
 
         test_transition(ActorState::Paused, Operation::Pause, ActorState::Paused);
         test_transition(ActorState::Paused, Operation::Resume, ActorState::Running);
-        test_transition(ActorState::Paused, Operation::Terminate, ActorState::Terminated);
+        test_transition(
+            ActorState::Paused,
+            Operation::Terminate,
+            ActorState::Terminated,
+        );
 
-        test_transition(ActorState::Terminated, Operation::Pause, ActorState::Terminated);
-        test_transition(ActorState::Terminated, Operation::Resume, ActorState::Terminated);
-        test_transition(ActorState::Terminated, Operation::Terminate, ActorState::Terminated);
+        test_transition(
+            ActorState::Terminated,
+            Operation::Pause,
+            ActorState::Terminated,
+        );
+        test_transition(
+            ActorState::Terminated,
+            Operation::Resume,
+            ActorState::Terminated,
+        );
+        test_transition(
+            ActorState::Terminated,
+            Operation::Terminate,
+            ActorState::Terminated,
+        );
     }
 }

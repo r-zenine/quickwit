@@ -295,11 +295,10 @@ mod tests {
         quickwit_common::setup_logging_for_tests();
         let (mailbox, inbox) = create_test_mailbox();
         let packager = Packager::new(mailbox);
-        let packager_handle = packager.spawn(KillSwitch::default());
+        let (packager_mailbox, packager_handle) = packager.spawn(KillSwitch::default());
         let indexed_split = make_indexed_split_for_test(&[&[1628203589, 1628203640]])?;
         let ctx = TestContext;
-        ctx.send_message(packager_handle.mailbox(), indexed_split)
-            .await?;
+        ctx.send_message(&packager_mailbox, indexed_split).await?;
         assert_eq!(
             packager_handle.process_pending_and_observe().await,
             Observation::Running(())
@@ -314,11 +313,10 @@ mod tests {
         quickwit_common::setup_logging_for_tests();
         let (mailbox, inbox) = create_test_mailbox();
         let packager = Packager::new(mailbox);
-        let packager_handle = packager.spawn(KillSwitch::default());
+        let (packager_mailbox, packager_handle) = packager.spawn(KillSwitch::default());
         let indexed_split = make_indexed_split_for_test(&[&[1628203589], &[1628203640]])?;
         let ctx = TestContext;
-        ctx.send_message(packager_handle.mailbox(), indexed_split)
-            .await?;
+        ctx.send_message(&packager_mailbox, indexed_split).await?;
         assert_eq!(
             packager_handle.process_pending_and_observe().await,
             Observation::Running(())
