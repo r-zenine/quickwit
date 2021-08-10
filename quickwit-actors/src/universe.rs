@@ -18,12 +18,14 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::ActorHandle;
 use crate::Actor;
-use crate::Mailbox;
-use crate::KillSwitch;
-use crate::Scheduler;
+use crate::ActorHandle;
 use crate::AsyncActor;
+use crate::KillSwitch;
+use crate::Mailbox;
+use crate::QueueCapacity;
+use crate::Scheduler;
+use crate::SyncActor;
 
 pub struct Universe {
     scheduler_handle: Option<ActorHandle<Scheduler>>,
@@ -42,7 +44,9 @@ impl Universe {
     pub async fn new() -> Universe {
         let scheduler = Scheduler::default();
         let kill_switch = KillSwitch::default();
-        let (scheduler_mailbox, scheduler_handler) = scheduler.spawn(kill_switch.clone());
+        let (mailbox, inbox) =
+            crate::create_mailbox("fake-mailbox".to_string(), QueueCapacity::Unbounded);
+        let (scheduler_mailbox, scheduler_handler) = scheduler.spawn(kill_switch.clone(), mailbox);
         Universe {
             scheduler_handle: Some(scheduler_handler),
             scheduler_mailbox,
@@ -50,8 +54,19 @@ impl Universe {
         }
     }
 
+    pub fn kill(&self) {
+        self.kill_switch.kill();
+    }
+
     pub fn spawn<A: AsyncActor>(&self, actor: A) -> (Mailbox<A::Message>, ActorHandle<A>) {
-        actor.spawn(self.kill_switch.clone(),) // self.scheduler_mailbox.clone()
+        actor.spawn(self.kill_switch.clone(), self.scheduler_mailbox.clone())
+    }
+
+    pub fn spawn_sync_actor<A: SyncActor>(
+        &self,
+        actor: A,
+    ) -> (Mailbox<A::Message>, ActorHandle<A>) {
+        actor.spawn(self.kill_switch.clone(), self.scheduler_mailbox.clone())
     }
 
     /// `async` version of `send_message`

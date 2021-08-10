@@ -236,25 +236,27 @@ mod tests {
             commit_policy,
             mailbox,
         )?;
-        let (indexer_mailbox, indexer_handle) = indexer.spawn(KillSwitch::default());
-        universe.send_message(
-            &indexer_mailbox,
-            RawDocBatch {
-                docs: vec![
-                    "{\"body\": \"happy\"}".to_string(),
-                    "{\"body\": \"happy2\"}".to_string(),
-                    "{".to_string(),
-                ],
-            },
-        )
-        .await?;
-        universe.send_message(
-            &indexer_mailbox,
-            RawDocBatch {
-                docs: vec!["{\"body\": \"happy3\"}".to_string()],
-            },
-        )
-        .await?;
+        let (indexer_mailbox, indexer_handle) = universe.spawn_sync_actor(indexer);
+        universe
+            .send_message(
+                &indexer_mailbox,
+                RawDocBatch {
+                    docs: vec![
+                        "{\"body\": \"happy\"}".to_string(),
+                        "{\"body\": \"happy2\"}".to_string(),
+                        "{".to_string(),
+                    ],
+                },
+            )
+            .await?;
+        universe
+            .send_message(
+                &indexer_mailbox,
+                RawDocBatch {
+                    docs: vec!["{\"body\": \"happy3\"}".to_string()],
+                },
+            )
+            .await?;
         let indexer_counters = indexer_handle
             .process_pending_and_observe()
             .await

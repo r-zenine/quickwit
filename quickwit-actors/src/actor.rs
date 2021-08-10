@@ -5,6 +5,7 @@ use thiserror::Error;
 use tracing::{debug, error};
 
 use crate::actor_handle::ActorMessage;
+use crate::scheduler::SchedulerMessage;
 use crate::{
     actor_state::{ActorState, AtomicState},
     progress::{Progress, ProtectZoneGuard},
@@ -40,11 +41,10 @@ pub enum ActorTermination {
 }
 
 impl ActorTermination {
-
     pub fn is_finished(&self) -> bool {
         match self {
             ActorTermination::Finished => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -124,11 +124,16 @@ pub struct ActorContextInner<A: Actor> {
     self_mailbox: Mailbox<A::Message>,
     progress: Progress,
     kill_switch: KillSwitch,
+    scheduler_mailbox: Mailbox<SchedulerMessage>,
     actor_state: AtomicState,
 }
 
 impl<A: Actor> ActorContext<A> {
-    pub fn new(self_mailbox: Mailbox<A::Message>, kill_switch: KillSwitch) -> Self {
+    pub fn new(
+        self_mailbox: Mailbox<A::Message>,
+        kill_switch: KillSwitch,
+        scheduler_mailbox: Mailbox<SchedulerMessage>,
+    ) -> Self {
         let actor_instance_name = self_mailbox.actor_instance_name();
         ActorContext {
             inner: ActorContextInner {
@@ -136,6 +141,7 @@ impl<A: Actor> ActorContext<A> {
                 self_mailbox,
                 progress: Progress::default(),
                 kill_switch,
+                scheduler_mailbox,
                 actor_state: AtomicState::default(),
             }
             .into(),
@@ -219,12 +225,11 @@ impl<A: SyncActor> ActorContext<A> {
     /// different from `send_message_blocking`.
     ///
     /// The method not
-    pub fn send_self_message_blocking(
-        &self,
-        msg: A::Message,
-    ) -> Result<(), crate::SendError> {
+    pub fn send_self_message_blocking(&self, msg: A::Message) -> Result<(), crate::SendError> {
         debug!(self=%self.self_mailbox.actor_instance_name(), msg=?msg, "self_send");
-        self.self_mailbox.sender.try_send(ActorMessage::Message(msg))
+        self.self_mailbox
+            .sender
+            .try_send(ActorMessage::Message(msg))
             .map_err(|_| crate::SendError::WouldDeadlock)?;
         Ok(())
     }
@@ -243,10 +248,7 @@ impl<A: AsyncActor> ActorContext<A> {
     }
 
     /// `async` version of `send_self_message`
-    pub async fn send_self_message(
-        &self,
-        msg: A::Message,
-    ) -> Result<(), crate::SendError> {
+    pub async fn send_self_message(&self, msg: A::Message) -> Result<(), crate::SendError> {
         debug!(self=%self.self_mailbox.actor_instance_name(), msg=?msg, "self_send");
         self.self_mailbox.send_message(msg).await
     }

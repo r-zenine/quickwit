@@ -127,8 +127,7 @@ impl<Message> Mailbox<Message> {
     /// Send a message to the actor in a blocking fashion.
     /// When possible, prefer using [Self::send()].
     pub(crate) fn send_message_blocking(&self, msg: Message) -> Result<(), SendError> {
-        self.sender
-            .send(ActorMessage::Message(msg))?;
+        self.sender.send(ActorMessage::Message(msg))?;
         Ok(())
     }
 
@@ -138,9 +137,7 @@ impl<Message> Mailbox<Message> {
     }
 
     pub async fn send_command(&self, command: Command) -> Result<(), SendError> {
-        self.command_sender
-            .send_async(command)
-            .await?;
+        self.command_sender.send_async(command).await?;
         Ok(())
     }
 }

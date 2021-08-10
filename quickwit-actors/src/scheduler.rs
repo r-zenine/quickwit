@@ -18,13 +18,13 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use async_trait::async_trait;
 use core::fmt;
 use std::cmp::Ordering;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::time::Duration;
 use std::time::Instant;
-use async_trait::async_trait;
 use tokio::task::JoinHandle;
 use tracing::info;
 
@@ -37,7 +37,7 @@ pub struct Callback(Box<dyn FnOnce() + Send + Sync + 'static>); //Box<dyn Send +
 struct TimeoutEvent {
     deadline: Instant,
     event_id: u64, //< only useful to break ties in a deterministic way.
-    callback: Callback
+    callback: Callback,
 }
 
 impl PartialEq for TimeoutEvent {
@@ -65,30 +65,29 @@ impl Ord for TimeoutEvent {
 pub enum SchedulerMessage {
     ScheduleEvent {
         timeout: Duration,
-        callback: Callback
+        callback: Callback,
     },
     Timeout,
     SimulateAdvanceTime {
-        time_shift: Duration
-    }
+        time_shift: Duration,
+    },
 }
 
 impl fmt::Debug for SchedulerMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SchedulerMessage::ScheduleEvent { timeout, callback: _ } => {
-                f.debug_struct("ScheduleEvent")
-                 .field("timeout", timeout)
-                 .finish()
-            }
-            SchedulerMessage::Timeout => {
-                f.write_str("Timeout")
-            },
-            SchedulerMessage::SimulateAdvanceTime { time_shift } => {
-                f.debug_struct("SimulateAdvanceTime")
-                 .field("time_shift", time_shift)
-                 .finish()
-            }
+            SchedulerMessage::ScheduleEvent {
+                timeout,
+                callback: _,
+            } => f
+                .debug_struct("ScheduleEvent")
+                .field("timeout", timeout)
+                .finish(),
+            SchedulerMessage::Timeout => f.write_str("Timeout"),
+            SchedulerMessage::SimulateAdvanceTime { time_shift } => f
+                .debug_struct("SimulateAdvanceTime")
+                .field("time_shift", time_shift)
+                .finish(),
         }
     }
 }
@@ -108,7 +107,6 @@ pub struct Scheduler {
 }
 
 impl Actor for Scheduler {
-
     type Message = SchedulerMessage;
 
     type ObservableState = SchedulerCounters;
@@ -129,16 +127,13 @@ impl AsyncActor for Scheduler {
         ctx: &crate::ActorContext<Self>,
     ) -> Result<(), crate::ActorTermination> {
         match message {
-            SchedulerMessage::ScheduleEvent {
-                timeout,
-                callback
-            } => {
+            SchedulerMessage::ScheduleEvent { timeout, callback } => {
                 self.process_schedule_event(timeout, callback, ctx).await;
-            },
-            SchedulerMessage::Timeout => {
-                self.process_timeout(ctx).await
             }
-            SchedulerMessage::SimulateAdvanceTime { time_shift } => { self.process_simulate_advance_time(time_shift, ctx).await }
+            SchedulerMessage::Timeout => self.process_timeout(ctx).await,
+            SchedulerMessage::SimulateAdvanceTime { time_shift } => {
+                self.process_simulate_advance_time(time_shift, ctx).await
+            }
         }
         Ok(())
     }
@@ -153,8 +148,13 @@ impl Scheduler {
         self.schedule_next_timeout(ctx);
     }
 
-    async fn process_schedule_event(&mut self, timeout: Duration, callback: Callback, ctx: &ActorContext<Self>) {
-        let new_evt_deadline  = self.simulated_now() + timeout;
+    async fn process_schedule_event(
+        &mut self,
+        timeout: Duration,
+        callback: Callback,
+        ctx: &ActorContext<Self>,
+    ) {
+        let new_evt_deadline = self.simulated_now() + timeout;
         let current_next_deadline = self.future_events.peek().map(|evt| evt.0.deadline);
         let is_new_next_deadline = current_next_deadline
             .map(|next_evt_deadline| new_evt_deadline < next_evt_deadline)
@@ -166,7 +166,11 @@ impl Scheduler {
         }
     }
 
-    async fn process_simulate_advance_time(&mut self, time_shift: Duration, ctx: &ActorContext<Self>) {
+    async fn process_simulate_advance_time(
+        &mut self,
+        time_shift: Duration,
+        ctx: &ActorContext<Self>,
+    ) {
         info!(time_shift=?time_shift, "advance-time");
         self.simulated_time_shift += time_shift;
         self.process_timeout(ctx).await;
@@ -184,7 +188,6 @@ impl Scheduler {
     fn simulated_now(&self) -> Instant {
         Instant::now() + self.simulated_time_shift
     }
-
 
     fn timeout_event(&mut self, deadline: Instant, callback: Callback) -> TimeoutEvent {
         let event_id = self.event_id_generator;
@@ -216,18 +219,16 @@ impl Scheduler {
         // n.b.: Dropping the previous timeout cancels it.
         self.next_timeout = Some(new_join_handle);
     }
-
 }
-
 
 #[cfg(test)]
 mod tests {
-    use super::{Scheduler, SchedulerMessage, Callback};
-    use std::sync::Arc;
-    use std::sync::atomic::{Ordering, AtomicBool};
-    use crate::Universe;
+    use super::{Callback, Scheduler, SchedulerMessage};
     use crate::scheduler::SchedulerCounters;
     use crate::AsyncActor;
+    use crate::Universe;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     fn create_test_callback() -> (Arc<AtomicBool>, Callback) {
@@ -247,12 +248,38 @@ mod tests {
         // The scheduler is usually spawned from within the universe.
         let (scheduler_mailbox, scheduler_handler) = universe.spawn(Scheduler::default());
         let (cb_called, callback) = create_test_callback();
-        universe.send_message(&scheduler_mailbox, SchedulerMessage::ScheduleEvent { timeout: Duration::from_secs(30), callback  }).await.unwrap();
+        universe
+            .send_message(
+                &scheduler_mailbox,
+                SchedulerMessage::ScheduleEvent {
+                    timeout: Duration::from_secs(30),
+                    callback,
+                },
+            )
+            .await
+            .unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert!(!cb_called.load(Ordering::SeqCst));
-        universe.send_message(&scheduler_mailbox, SchedulerMessage::SimulateAdvanceTime { time_shift: Duration::from_secs(31) }).await.unwrap();
-        let scheduler_counters: SchedulerCounters= scheduler_handler.process_pending_and_observe().await.into_inner();
-        assert_eq!(scheduler_counters, SchedulerCounters { total_num_events: 1, num_pending_events: 0});
+        universe
+            .send_message(
+                &scheduler_mailbox,
+                SchedulerMessage::SimulateAdvanceTime {
+                    time_shift: Duration::from_secs(31),
+                },
+            )
+            .await
+            .unwrap();
+        let scheduler_counters: SchedulerCounters = scheduler_handler
+            .process_pending_and_observe()
+            .await
+            .into_inner();
+        assert_eq!(
+            scheduler_counters,
+            SchedulerCounters {
+                total_num_events: 1,
+                num_pending_events: 0
+            }
+        );
         assert!(cb_called.load(Ordering::SeqCst));
         scheduler_handler.finish().await;
     }
@@ -264,25 +291,86 @@ mod tests {
         let (scheduler_mailbox, scheduler_handler) = universe.spawn(Scheduler::default());
         let (cb_called1, callback1) = create_test_callback();
         let (cb_called2, callback2) = create_test_callback();
-        universe.send_message(&scheduler_mailbox, SchedulerMessage::ScheduleEvent { timeout: Duration::from_secs(20), callback: callback2  }).await.unwrap();
-        universe.send_message(&scheduler_mailbox, SchedulerMessage::ScheduleEvent { timeout: Duration::from_millis(2), callback: callback1  }).await.unwrap();
-        let scheduler_counters = scheduler_handler.process_pending_and_observe().await.into_inner();
-        assert_eq!(scheduler_counters, SchedulerCounters { total_num_events: 2, num_pending_events: 2});
+        universe
+            .send_message(
+                &scheduler_mailbox,
+                SchedulerMessage::ScheduleEvent {
+                    timeout: Duration::from_secs(20),
+                    callback: callback2,
+                },
+            )
+            .await
+            .unwrap();
+        universe
+            .send_message(
+                &scheduler_mailbox,
+                SchedulerMessage::ScheduleEvent {
+                    timeout: Duration::from_millis(2),
+                    callback: callback1,
+                },
+            )
+            .await
+            .unwrap();
+        let scheduler_counters = scheduler_handler
+            .process_pending_and_observe()
+            .await
+            .into_inner();
+        assert_eq!(
+            scheduler_counters,
+            SchedulerCounters {
+                total_num_events: 2,
+                num_pending_events: 2
+            }
+        );
         assert!(!cb_called1.load(Ordering::SeqCst));
         assert!(!cb_called2.load(Ordering::SeqCst));
         tokio::time::sleep(Duration::from_millis(10)).await;
-        let scheduler_counters = scheduler_handler.process_pending_and_observe().await.into_inner();
-        assert_eq!(scheduler_counters, SchedulerCounters { total_num_events: 2, num_pending_events: 1});
+        let scheduler_counters = scheduler_handler
+            .process_pending_and_observe()
+            .await
+            .into_inner();
+        assert_eq!(
+            scheduler_counters,
+            SchedulerCounters {
+                total_num_events: 2,
+                num_pending_events: 1
+            }
+        );
         assert!(cb_called1.load(Ordering::SeqCst));
         assert!(!cb_called2.load(Ordering::SeqCst));
-        universe.send_message(&scheduler_mailbox, SchedulerMessage::SimulateAdvanceTime { time_shift: Duration::from_secs(10) }).await.unwrap();
+        universe
+            .send_message(
+                &scheduler_mailbox,
+                SchedulerMessage::SimulateAdvanceTime {
+                    time_shift: Duration::from_secs(10),
+                },
+            )
+            .await
+            .unwrap();
         assert!(cb_called1.load(Ordering::SeqCst));
         assert!(!cb_called2.load(Ordering::SeqCst));
-        universe.send_message(&scheduler_mailbox, SchedulerMessage::SimulateAdvanceTime { time_shift: Duration::from_secs(10) }).await.unwrap();
-        let scheduler_counters: SchedulerCounters= scheduler_handler.process_pending_and_observe().await.into_inner();
+        universe
+            .send_message(
+                &scheduler_mailbox,
+                SchedulerMessage::SimulateAdvanceTime {
+                    time_shift: Duration::from_secs(10),
+                },
+            )
+            .await
+            .unwrap();
+        let scheduler_counters: SchedulerCounters = scheduler_handler
+            .process_pending_and_observe()
+            .await
+            .into_inner();
         assert!(cb_called1.load(Ordering::SeqCst));
         assert!(cb_called2.load(Ordering::SeqCst));
-        assert_eq!(scheduler_counters, SchedulerCounters { total_num_events: 2, num_pending_events: 0});
+        assert_eq!(
+            scheduler_counters,
+            SchedulerCounters {
+                total_num_events: 2,
+                num_pending_events: 0
+            }
+        );
         scheduler_handler.finish().await;
     }
 }

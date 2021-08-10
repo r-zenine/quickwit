@@ -83,7 +83,6 @@ impl AsyncActor for Publisher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quickwit_actors::KillSwitch;
     use quickwit_actors::Universe;
     use quickwit_metastore::MockMetastore;
     use tokio::sync::oneshot;
@@ -104,8 +103,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
         let publisher = Publisher::new(Arc::new(mock_metastore));
-        let kill_switch = KillSwitch::default();
-        let (publisher_mailbox, publisher_handle) = publisher.spawn(kill_switch);
+        let (publisher_mailbox, publisher_handle) = universe.spawn(publisher);
         let (split_future_tx1, split_future_rx1) = oneshot::channel::<UploadedSplit>();
         assert!(universe
             .send_message(&publisher_mailbox, split_future_rx1)

@@ -5,6 +5,7 @@ use tracing::{debug, error, info};
 use crate::actor::ActorTermination;
 use crate::actor_state::ActorState;
 use crate::mailbox::{create_mailbox, Command, Inbox};
+use crate::scheduler::SchedulerMessage;
 use crate::{Actor, ActorContext, ActorHandle, KillSwitch, Mailbox, ReceptionResult};
 
 /// An sync actor is executed on a tokio blocking task.
@@ -40,14 +41,18 @@ pub trait SyncActor: Actor + Sized {
     }
 
     #[doc(hidden)]
-    fn spawn(self, kill_switch: KillSwitch) -> (Mailbox<Self::Message>, ActorHandle<Self>) {
+    fn spawn(
+        self,
+        kill_switch: KillSwitch,
+        scheduler_mailbox: Mailbox<SchedulerMessage>,
+    ) -> (Mailbox<Self::Message>, ActorHandle<Self>) {
         let actor_name = self.name();
         debug!(actor_name=%actor_name,"spawning-sync-actor");
         let queue_capacity = self.queue_capacity();
         let (mailbox, inbox) = create_mailbox(actor_name, queue_capacity);
         let mailbox_clone = mailbox.clone();
         let (state_tx, state_rx) = watch::channel(self.observable_state());
-        let ctx = ActorContext::new(mailbox, kill_switch);
+        let ctx = ActorContext::new(mailbox, kill_switch, scheduler_mailbox);
         let ctx_clone = ctx.clone();
         let join_handle = spawn_blocking::<_, ActorTermination>(move || {
             let actor_name = self.name();
@@ -75,8 +80,7 @@ fn process_msg<A: Actor + SyncActor>(
 
     ctx.progress().record_progress();
 
-    let reception_result =
-        inbox.try_recv_msg_blocking(ctx.get_state() == ActorState::Running);
+    let reception_result = inbox.try_recv_msg_blocking(ctx.get_state() == ActorState::Running);
 
     ctx.progress().record_progress();
     if !ctx.kill_switch().is_alive() {

@@ -2,6 +2,7 @@ use crate::actor::ActorTermination;
 use crate::actor_handle::ActorHandle;
 use crate::actor_state::ActorState;
 use crate::mailbox::{create_mailbox, Command, Inbox};
+use crate::scheduler::{Scheduler, SchedulerMessage};
 use crate::{Actor, ActorContext, KillSwitch, Mailbox, ReceptionResult};
 use anyhow::Context;
 use async_trait::async_trait;
@@ -36,14 +37,18 @@ pub trait AsyncActor: Actor + Sized {
     }
 
     #[doc(hidden)]
-    fn spawn(self, kill_switch: KillSwitch) -> (Mailbox<Self::Message>, ActorHandle<Self>) {
+    fn spawn(
+        self,
+        kill_switch: KillSwitch,
+        scheduler_mailbox: Mailbox<SchedulerMessage>,
+    ) -> (Mailbox<Self::Message>, ActorHandle<Self>) {
         debug!(actor_name=%self.name(),"spawning-async-actor");
         let (state_tx, state_rx) = watch::channel(self.observable_state());
         let actor_name = self.name();
         let queue_capacity = self.queue_capacity();
         let (mailbox, inbox) = create_mailbox(actor_name, queue_capacity);
         let mailbox_clone = mailbox.clone();
-        let ctx = ActorContext::new(mailbox, kill_switch);
+        let ctx = ActorContext::new(mailbox, kill_switch, scheduler_mailbox);
         let ctx_clone = ctx.clone();
         let join_handle = tokio::spawn(async_actor_loop(self, inbox, ctx, state_tx));
         let handle = ActorHandle::new(state_rx, join_handle, ctx_clone);

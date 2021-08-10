@@ -211,11 +211,8 @@ pub trait Metastore: Send + Sync + 'static {
     /// This API only takes a split that is in `Staged` or `ScheduledForDeletion` state.
     /// This removes the split metadata from the metastore, but does not remove the split from storage.
     /// An error will occur if you specify an index or split that does not exist in the storage.
-    async fn delete_splits<'a>(
-        &self,
-        index_id: &str,
-        split_ids: &[&'a str],
-    ) -> MetastoreResult<()>;
+    async fn delete_splits<'a>(&self, index_id: &str, split_ids: &[&'a str])
+        -> MetastoreResult<()>;
 
     /// Returns the Metastore uri.
     fn uri(&self) -> String;
