@@ -35,7 +35,7 @@ mod mailbox;
 mod observation;
 mod progress;
 mod sync_actor;
-
+mod scheduler;
 mod actor_state;
 #[cfg(test)]
 mod tests;
