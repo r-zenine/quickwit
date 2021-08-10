@@ -62,10 +62,12 @@ fn serialize_click_house_row_binary<TFastValue: FastValue + Display>(
     buffer: &mut Vec<u8>,
 ) -> io::Result<()> {
     buffer.clear();
-    buffer.reserve_exact(std::mem::size_of::<TFastValue>() * values.len());
-    for value in values {
-        buffer.extend(value.as_u64().to_le_bytes());
-    }
+    let num_bytes = std::mem::size_of::<TFastValue>() * values.len();
+    buffer.reserve_exact(num_bytes);
+    unsafe {
+        buffer.set_len(num_bytes);
+        std::ptr::copy_nonoverlapping(values.as_ptr() as *const u8, buffer.as_mut_ptr(), num_bytes);
+    };
     Ok(())
 }
 
