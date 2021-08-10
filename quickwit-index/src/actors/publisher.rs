@@ -84,13 +84,14 @@ impl AsyncActor for Publisher {
 mod tests {
     use super::*;
     use quickwit_actors::KillSwitch;
-    use quickwit_actors::TestContext;
+    use quickwit_actors::Universe;
     use quickwit_metastore::MockMetastore;
     use tokio::sync::oneshot;
 
     #[tokio::test]
     async fn test_publisher_publishes_in_order() {
         quickwit_common::setup_logging_for_tests();
+        let universe = Universe::new().await;
         let mut mock_metastore = MockMetastore::default();
         mock_metastore
             .expect_publish_splits()
@@ -106,13 +107,12 @@ mod tests {
         let kill_switch = KillSwitch::default();
         let (publisher_mailbox, publisher_handle) = publisher.spawn(kill_switch);
         let (split_future_tx1, split_future_rx1) = oneshot::channel::<UploadedSplit>();
-        let ctx = TestContext;
-        assert!(ctx
+        assert!(universe
             .send_message(&publisher_mailbox, split_future_rx1)
             .await
             .is_ok());
         let (split_future_tx2, split_future_rx2) = oneshot::channel::<UploadedSplit>();
-        assert!(ctx
+        assert!(universe
             .send_message(&publisher_mailbox, split_future_rx2)
             .await
             .is_ok());

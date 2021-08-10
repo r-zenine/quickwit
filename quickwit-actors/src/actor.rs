@@ -251,25 +251,3 @@ impl<A: AsyncActor> ActorContext<A> {
         self.self_mailbox.send_message(msg).await
     }
 }
-
-pub struct TestContext;
-
-impl TestContext {
-    /// Sends a message to the actor being the mailbox.
-    pub fn send_message_blocking<M>(
-        &self,
-        mailbox: &Mailbox<M>,
-        msg: M,
-    ) -> Result<(), crate::SendError> {
-        mailbox.send_message_blocking(msg)
-    }
-
-    /// `async` version of `send_message`
-    pub async fn send_message<M>(
-        &self,
-        mailbox: &Mailbox<M>,
-        msg: M,
-    ) -> Result<(), crate::SendError> {
-        mailbox.send_message(msg).await
-    }
-}

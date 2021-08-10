@@ -107,7 +107,7 @@ impl AsyncActor for FileSource {
 
 #[cfg(test)]
 mod tests {
-    use quickwit_actors::TestContext;
+    use quickwit_actors::Universe;
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
 
@@ -116,11 +116,11 @@ mod tests {
     #[tokio::test]
     async fn test_file_source() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
+        let universe = Universe::new().await;
         let (mailbox, inbox) = create_test_mailbox();
         let file_source = FileSource::try_new(Path::new("data/test_corpus.json"), mailbox).await?;
         let (file_source_mailbox, file_source_handle) = file_source.spawn(KillSwitch::default());
-        let ctx = TestContext;
-        ctx.send_message(&file_source_mailbox, ()).await?;
+        universe.send_message(&file_source_mailbox, ()).await?;
         let (actor_termination, file_position) = file_source_handle.join().await?;
         assert!(actor_termination.is_finished());
         assert_eq!(file_position, FilePosition {

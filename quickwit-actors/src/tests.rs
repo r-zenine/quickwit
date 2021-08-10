@@ -1,4 +1,4 @@
-use crate::TestContext;
+use crate::Universe;
 use crate::mailbox::Command;
 use crate::Actor;
 use crate::KillSwitch;
@@ -357,8 +357,8 @@ async fn test_default_message_async() -> anyhow::Result<()> {
     let actor_with_default_msg = LoopingActor::default();
     let (actor_with_default_msg_mailbox, actor_with_default_msg_handle) =
         AsyncActor::spawn(actor_with_default_msg, KillSwitch::default());
-    let test_context = TestContext;
-    test_context.send_message(&actor_with_default_msg_mailbox, Msg::Looping).await?;
+    let universe = Universe::new().await;
+    universe.send_message(&actor_with_default_msg_mailbox, Msg::Looping).await?;
     assert!(actor_with_default_msg_mailbox
         .send_message(Msg::Normal)
         .await
@@ -380,8 +380,8 @@ async fn test_default_message_sync() -> anyhow::Result<()> {
     let actor_with_default_msg = LoopingActor::default();
     let (actor_with_default_msg_mailbox, actor_with_default_msg_handle) =
         SyncActor::spawn(actor_with_default_msg, KillSwitch::default());
-    let test_context = TestContext;
-    test_context.send_message(&actor_with_default_msg_mailbox, Msg::Looping).await?;
+    let universe = Universe::new().await;
+    universe.send_message(&actor_with_default_msg_mailbox, Msg::Looping).await?;
     assert!(actor_with_default_msg_mailbox
         .send_message(Msg::Normal)
         .await

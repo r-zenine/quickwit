@@ -228,10 +228,10 @@ impl AsyncActor for Uploader {
 
 #[cfg(test)]
 mod tests {
+    use quickwit_actors::Universe;
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
     use quickwit_actors::Observation;
-    use quickwit_actors::TestContext;
     use quickwit_metastore::MockMetastore;
     use quickwit_storage::RamStorage;
 
@@ -242,6 +242,7 @@ mod tests {
     #[tokio::test]
     async fn test_uploader() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
+        let universe = Universe::new().await;
         let (mailbox, inbox) = create_test_mailbox();
         let mut mock_metastore = MockMetastore::default();
         mock_metastore
@@ -271,8 +272,7 @@ mod tests {
         let segment_ids = vec![SegmentId::from_uuid_string(
             "f45425f4-f67c-417e-9de7-8a8327115d47",
         )?];
-        let ctx = TestContext;
-        ctx.send_message(
+        universe.send_message(
             &uploader_mailbox,
             PackagedSplit {
                 split_id: "test-split".to_string(),

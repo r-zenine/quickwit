@@ -39,17 +39,20 @@ mod scheduler;
 mod actor_state;
 #[cfg(test)]
 mod tests;
+mod universe;
 
 pub use self::actor::ActorContext;
 pub use self::mailbox::{
     create_mailbox, create_test_mailbox, Mailbox, QueueCapacity, ReceptionResult,
 };
-pub use actor::{Actor, ActorTermination, TestContext};
+pub use actor::{Actor, ActorTermination};
 pub use actor_handle::ActorHandle;
 pub use async_actor::AsyncActor;
 pub use kill_switch::KillSwitch;
 pub use observation::Observation;
 pub use sync_actor::SyncActor;
+pub use universe::Universe;
+pub(crate) use scheduler::Scheduler;
 
 /// Heartbeat used to verify that actors are progressing.
 ///

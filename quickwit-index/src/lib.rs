@@ -32,7 +32,7 @@ use quickwit_actors::ActorTermination;
 use quickwit_actors::AsyncActor;
 use quickwit_actors::KillSwitch;
 use quickwit_actors::SyncActor;
-use quickwit_actors::TestContext;
+use quickwit_actors::Universe;
 use quickwit_metastore::Metastore;
 use quickwit_storage::StorageUriResolver;
 use tracing::info;
@@ -73,8 +73,8 @@ pub async fn spawn_indexing_pipeline(
     let source = FileSource::try_new(Path::new("data/test_corpus.json"), indexer_mailbox).await?;
 
     let (source_mailbox, _source_handle) = source.spawn(kill_switch.clone());
-    let ctx = TestContext;
-    ctx.send_message(&source_mailbox, ()).await?;
+    let universe = Universe::new().await;
+    universe.send_message(&source_mailbox, ()).await?;
     let (actor_termination, observation) = publisher_handler.join().await?;
     Ok((actor_termination, observation))
 }

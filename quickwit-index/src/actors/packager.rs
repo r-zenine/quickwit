@@ -224,10 +224,10 @@ mod tests {
     use std::ops::RangeInclusive;
     use std::time::Instant;
 
+    use quickwit_actors::Universe;
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
     use quickwit_actors::Observation;
-    use quickwit_actors::TestContext;
     use tantivy::doc;
     use tantivy::schema::Schema;
     use tantivy::schema::FAST;
@@ -297,8 +297,8 @@ mod tests {
         let packager = Packager::new(mailbox);
         let (packager_mailbox, packager_handle) = packager.spawn(KillSwitch::default());
         let indexed_split = make_indexed_split_for_test(&[&[1628203589, 1628203640]])?;
-        let ctx = TestContext;
-        ctx.send_message(&packager_mailbox, indexed_split).await?;
+        let universe = Universe::new().await;
+        universe.send_message(&packager_mailbox, indexed_split).await?;
         assert_eq!(
             packager_handle.process_pending_and_observe().await,
             Observation::Running(())
@@ -315,8 +315,8 @@ mod tests {
         let packager = Packager::new(mailbox);
         let (packager_mailbox, packager_handle) = packager.spawn(KillSwitch::default());
         let indexed_split = make_indexed_split_for_test(&[&[1628203589], &[1628203640]])?;
-        let ctx = TestContext;
-        ctx.send_message(&packager_mailbox, indexed_split).await?;
+        let universe = Universe::new().await;
+        universe.send_message(&packager_mailbox, indexed_split).await?;
         assert_eq!(
             packager_handle.process_pending_and_observe().await,
             Observation::Running(())

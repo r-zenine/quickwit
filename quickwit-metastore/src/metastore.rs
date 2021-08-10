@@ -204,7 +204,7 @@ pub trait Metastore: Send + Sync + 'static {
     async fn mark_splits_as_deleted<'a>(
         &self,
         index_id: &str,
-        split_ids: Vec<&'a str>,
+        split_ids: &[&'a str],
     ) -> MetastoreResult<()>;
 
     /// Deletes a list of splits.
@@ -214,7 +214,7 @@ pub trait Metastore: Send + Sync + 'static {
     async fn delete_splits<'a>(
         &self,
         index_id: &str,
-        split_ids: Vec<&'a str>,
+        split_ids: &[&'a str],
     ) -> MetastoreResult<()>;
 
     /// Returns the Metastore uri.

@@ -215,13 +215,14 @@ mod tests {
     use quickwit_actors::create_test_mailbox;
     use quickwit_actors::KillSwitch;
     use quickwit_actors::SyncActor;
-    use quickwit_actors::TestContext;
+    use quickwit_actors::Universe;
 
     use super::Indexer;
 
     #[tokio::test]
     async fn test_indexer() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
+        let universe = Universe::new().await;
         let commit_policy = CommitPolicy {
             timeout: Duration::from_secs(60),
             num_docs_threshold: 3,
@@ -236,8 +237,7 @@ mod tests {
             mailbox,
         )?;
         let (indexer_mailbox, indexer_handle) = indexer.spawn(KillSwitch::default());
-        let ctx = TestContext;
-        ctx.send_message(
+        universe.send_message(
             &indexer_mailbox,
             RawDocBatch {
                 docs: vec![
@@ -248,7 +248,7 @@ mod tests {
             },
         )
         .await?;
-        ctx.send_message(
+        universe.send_message(
             &indexer_mailbox,
             RawDocBatch {
                 docs: vec!["{\"body\": \"happy3\"}".to_string()],

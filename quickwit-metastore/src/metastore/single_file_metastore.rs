@@ -311,12 +311,12 @@ impl Metastore for SingleFileMetastore {
     async fn mark_splits_as_deleted<'a>(
         &self,
         index_id: &str,
-        split_ids: Vec<&'a str>,
+        split_ids: &[&'a str],
     ) -> MetastoreResult<()> {
         let mut metadata_set = self.get_index(index_id).await?;
 
         let mut is_modified = false;
-        for split_id in split_ids {
+        for &split_id in split_ids {
             // Check for the existence of split.
             let split_metadata = metadata_set.splits.get_mut(split_id).ok_or_else(|| {
                 MetastoreError::SplitDoesNotExist {
@@ -344,11 +344,11 @@ impl Metastore for SingleFileMetastore {
     async fn delete_splits<'a>(
         &self,
         index_id: &str,
-        split_ids: Vec<&'a str>,
+        split_ids: &[&'a str],
     ) -> MetastoreResult<()> {
         let mut metadata_set = self.get_index(index_id).await?;
 
-        for split_id in split_ids {
+        for &split_id in split_ids {
             // Check for the existence of split.
             let split_metadata = metadata_set.splits.get_mut(split_id).ok_or_else(|| {
                 MetastoreError::SplitDoesNotExist {
@@ -740,7 +740,7 @@ mod tests {
 
             // publish split
             metastore
-                .publish_splits(index_id, vec![split_id_one])
+                .publish_splits(index_id, &[split_id_one])
                 .await
                 .unwrap();
         }
@@ -762,17 +762,17 @@ mod tests {
         {
             // publish published split
             metastore
-                .publish_splits(index_id, vec![split_id_one])
+                .publish_splits(index_id, &[split_id_one])
                 .await
                 .unwrap();
 
             // publish non-staged split
             metastore
-                .mark_splits_as_deleted(index_id, vec![split_id_one]) // mark as deleted
+                .mark_splits_as_deleted(index_id, &[split_id_one]) // mark as deleted
                 .await
                 .unwrap();
             let metastore_error = metastore
-                .publish_splits(index_id, vec![split_id_one]) // publish
+                .publish_splits(index_id, &[split_id_one]) // publish
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -782,7 +782,7 @@ mod tests {
 
             // publish non-existent index
             let metastore_error = metastore
-                .publish_splits("non-existent-index", vec![split_id_one])
+                .publish_splits("non-existent-index", &[split_id_one])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -792,7 +792,7 @@ mod tests {
 
             // publish non-existent split
             let metastore_error = metastore
-                .publish_splits(index_id, vec!["non-existent-split"])
+                .publish_splits(index_id, &["non-existent-split"])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -804,7 +804,7 @@ mod tests {
         {
             // publish one non-staged split and one non-existent split
             let metastore_error = metastore
-                .publish_splits(index_id, vec![split_id_one, split_id_two])
+                .publish_splits(index_id, &[split_id_one, split_id_two])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -814,11 +814,11 @@ mod tests {
 
             // publish two non-existent splits
             metastore
-                .delete_splits(index_id, vec![split_id_one])
+                .delete_splits(index_id, &[split_id_one])
                 .await
                 .unwrap();
             let metastore_error = metastore
-                .publish_splits(index_id, vec![split_id_one, split_id_two])
+                .publish_splits(index_id, &[split_id_one, split_id_two])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -832,7 +832,7 @@ mod tests {
                 .await
                 .unwrap();
             let metastore_error = metastore
-                .publish_splits(index_id, vec![split_id_one, split_id_two])
+                .publish_splits(index_id, &[split_id_one, split_id_two])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -846,13 +846,13 @@ mod tests {
                 .await
                 .unwrap();
             metastore
-                .publish_splits(index_id, vec![split_id_one, split_id_two])
+                .publish_splits(index_id, &[split_id_one, split_id_two])
                 .await
                 .unwrap();
 
             //publishe two published splits
             metastore
-                .publish_splits(index_id, vec![split_id_one, split_id_two])
+                .publish_splits(index_id, &[split_id_one, split_id_two])
                 .await
                 .unwrap();
         }
@@ -1448,13 +1448,13 @@ mod tests {
 
             // publish split
             metastore
-                .publish_splits(index_id, vec![split_id])
+                .publish_splits(index_id, &[split_id])
                 .await
                 .unwrap();
 
             // mark splits as deleted (one non-existent)
             let metastore_error = metastore
-                .mark_splits_as_deleted(index_id, vec![split_id, "non-existent-split"])
+                .mark_splits_as_deleted(index_id, &[split_id, "non-existent-split"])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -1464,7 +1464,7 @@ mod tests {
 
             // mark split as deleted
             metastore
-                .mark_splits_as_deleted(index_id, vec![split_id])
+                .mark_splits_as_deleted(index_id, &[split_id])
                 .await
                 .unwrap();
         }
@@ -1486,13 +1486,13 @@ mod tests {
         {
             // mark split as deleted (already marked as deleted)
             metastore
-                .mark_splits_as_deleted(index_id, vec![split_id])
+                .mark_splits_as_deleted(index_id, &[split_id])
                 .await
                 .unwrap();
 
             // mark split as deleted (non-existent index)
             let metastore_error = metastore
-                .mark_splits_as_deleted("non-existent-index", vec![split_id])
+                .mark_splits_as_deleted("non-existent-index", &[split_id])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -1502,7 +1502,7 @@ mod tests {
 
             // mark split as deleted (non-existent)
             let metastore_error = metastore
-                .mark_splits_as_deleted(index_id, vec!["non-existent-split"])
+                .mark_splits_as_deleted(index_id, &["non-existent-split"])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -1553,26 +1553,26 @@ mod tests {
 
             // publish split
             metastore
-                .publish_splits(index_id, vec![split_id])
+                .publish_splits(index_id, &[split_id])
                 .await
                 .unwrap();
 
             // delete split (published split)
             let metastore_error = metastore
-                .delete_splits(index_id, vec![split_id])
+                .delete_splits(index_id, &[split_id])
                 .await
                 .unwrap_err();
             assert!(matches!(metastore_error, MetastoreError::Forbidden { .. }));
 
             // mark split as deleted
             metastore
-                .mark_splits_as_deleted(index_id, vec![split_id])
+                .mark_splits_as_deleted(index_id, &[split_id])
                 .await
                 .unwrap();
 
             // mark splits as deleted (one non-existent split)
             let metastore_error = metastore
-                .mark_splits_as_deleted(index_id, vec![split_id, "non-existent-split"])
+                .mark_splits_as_deleted(index_id, &[split_id, "non-existent-split"])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -1582,7 +1582,7 @@ mod tests {
 
             // delete split
             metastore
-                .delete_splits(index_id, vec![split_id])
+                .delete_splits(index_id, &[split_id])
                 .await
                 .unwrap();
         }
@@ -1598,7 +1598,7 @@ mod tests {
         {
             // mark split as deleted (non-existent index)
             let metastore_error = metastore
-                .delete_splits("non-existent-index", vec![split_id])
+                .delete_splits("non-existent-index", &[split_id])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -1608,7 +1608,7 @@ mod tests {
 
             // delete split (non-existent split)
             let metastore_error = metastore
-                .delete_splits(index_id, vec!["non-existent-split"])
+                .delete_splits(index_id, &["non-existent-split"])
                 .await
                 .unwrap_err();
             assert!(matches!(
@@ -1655,7 +1655,7 @@ mod tests {
         // wait for 1s, publish split & check `update_timestamp`
         sleep(Duration::from_secs(1)).await;
         metastore
-            .publish_splits(index_id, vec![split_id])
+            .publish_splits(index_id, &[split_id])
             .await
             .unwrap();
         let split_meta = metastore.list_all_splits(index_id).await.unwrap()[0].clone();
@@ -1665,7 +1665,7 @@ mod tests {
         // wait for 1s, mark split as deleted & check `update_timestamp`
         sleep(Duration::from_secs(1)).await;
         metastore
-            .mark_splits_as_deleted(index_id, vec![split_id])
+            .mark_splits_as_deleted(index_id, &[split_id])
             .await
             .unwrap();
         let split_meta = metastore.list_all_splits(index_id).await.unwrap()[0].clone();
@@ -1719,7 +1719,7 @@ mod tests {
             .unwrap();
 
         // publish split fails
-        let err = metastore.publish_splits(index_id, vec![split_id]).await;
+        let err = metastore.publish_splits(index_id, &[split_id]).await;
         assert!(err.is_err());
 
         // empty
