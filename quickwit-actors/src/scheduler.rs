@@ -20,9 +20,11 @@
 
 use async_trait::async_trait;
 use core::fmt;
+use futures::Future;
 use std::cmp::Ordering;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::pin::Pin;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::task::JoinHandle;
@@ -32,7 +34,10 @@ use crate::Actor;
 use crate::ActorContext;
 use crate::AsyncActor;
 
-pub struct Callback(Box<dyn FnOnce() + Send + Sync + 'static>); //Box<dyn Send + Sync + 'static>;
+pub(crate) struct Callback(pub Pin<Box<dyn Future<Output = ()> + Sync + Send + 'static>>);
+
+// A bug in the rustc requires wrapping Box<...> in order to use it as an argument in an async method.
+// pub(crate) struct Callback(pub BoxFuture<'static, ()>);
 
 struct TimeoutEvent {
     deadline: Instant,
@@ -62,7 +67,7 @@ impl Ord for TimeoutEvent {
     }
 }
 
-pub enum SchedulerMessage {
+pub(crate) enum SchedulerMessage {
     ScheduleEvent {
         timeout: Duration,
         callback: Callback,
@@ -70,6 +75,7 @@ pub enum SchedulerMessage {
     Timeout,
     SimulateAdvanceTime {
         time_shift: Duration,
+        tx: tokio::sync::oneshot::Sender<()>,
     },
 }
 
@@ -84,7 +90,7 @@ impl fmt::Debug for SchedulerMessage {
                 .field("timeout", timeout)
                 .finish(),
             SchedulerMessage::Timeout => f.write_str("Timeout"),
-            SchedulerMessage::SimulateAdvanceTime { time_shift } => f
+            SchedulerMessage::SimulateAdvanceTime { time_shift, .. } => f
                 .debug_struct("SimulateAdvanceTime")
                 .field("time_shift", time_shift)
                 .finish(),
@@ -99,7 +105,7 @@ pub struct SchedulerCounters {
 }
 
 #[derive(Default)]
-pub struct Scheduler {
+pub(crate) struct Scheduler {
     event_id_generator: u64,
     simulated_time_shift: Duration,
     future_events: BinaryHeap<Reverse<TimeoutEvent>>,
@@ -131,8 +137,9 @@ impl AsyncActor for Scheduler {
                 self.process_schedule_event(timeout, callback, ctx).await;
             }
             SchedulerMessage::Timeout => self.process_timeout(ctx).await,
-            SchedulerMessage::SimulateAdvanceTime { time_shift } => {
-                self.process_simulate_advance_time(time_shift, ctx).await
+            SchedulerMessage::SimulateAdvanceTime { time_shift, tx } => {
+                self.process_simulate_advance_time(time_shift, ctx).await;
+                let _ = tx.send(());
             }
         }
         Ok(())
@@ -143,7 +150,7 @@ impl Scheduler {
     async fn process_timeout(&mut self, ctx: &ActorContext<Self>) {
         let now = self.simulated_now();
         while let Some(next_evt) = self.find_next_event_before_now(now) {
-            next_evt.0()
+            next_evt.0.await;
         }
         self.schedule_next_timeout(ctx);
     }
@@ -225,16 +232,16 @@ impl Scheduler {
 mod tests {
     use super::{Callback, Scheduler, SchedulerMessage};
     use crate::scheduler::SchedulerCounters;
-    use crate::AsyncActor;
     use crate::Universe;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
+    use tokio::sync::oneshot;
 
     fn create_test_callback() -> (Arc<AtomicBool>, Callback) {
         let cb_called = Arc::new(AtomicBool::default());
         let cb_called_clone = cb_called.clone();
-        let callback = Callback(Box::new(move || {
+        let callback = Callback(Box::pin(async move {
             cb_called_clone.store(true, Ordering::SeqCst);
         }));
         (cb_called, callback)
@@ -243,7 +250,7 @@ mod tests {
     #[tokio::test]
     async fn test_scheduler_advance_time() {
         quickwit_common::setup_logging_for_tests();
-        let universe = Universe::new().await;
+        let universe = Universe::new();
         // It might be a bit confusing. We spawn a scheduler like a regular actor to test it.
         // The scheduler is usually spawned from within the universe.
         let (scheduler_mailbox, scheduler_handler) = universe.spawn(Scheduler::default());
@@ -260,11 +267,13 @@ mod tests {
             .unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert!(!cb_called.load(Ordering::SeqCst));
+        let (tx, _rx) = oneshot::channel();
         universe
             .send_message(
                 &scheduler_mailbox,
                 SchedulerMessage::SimulateAdvanceTime {
                     time_shift: Duration::from_secs(31),
+                    tx,
                 },
             )
             .await
@@ -287,7 +296,7 @@ mod tests {
     #[tokio::test]
     async fn test_scheduler_simple() {
         quickwit_common::setup_logging_for_tests();
-        let universe = Universe::new().await;
+        let universe = Universe::new();
         let (scheduler_mailbox, scheduler_handler) = universe.spawn(Scheduler::default());
         let (cb_called1, callback1) = create_test_callback();
         let (cb_called2, callback2) = create_test_callback();
@@ -338,22 +347,26 @@ mod tests {
         );
         assert!(cb_called1.load(Ordering::SeqCst));
         assert!(!cb_called2.load(Ordering::SeqCst));
+        let (tx, _rx) = oneshot::channel::<()>();
         universe
             .send_message(
                 &scheduler_mailbox,
                 SchedulerMessage::SimulateAdvanceTime {
                     time_shift: Duration::from_secs(10),
+                    tx,
                 },
             )
             .await
             .unwrap();
         assert!(cb_called1.load(Ordering::SeqCst));
         assert!(!cb_called2.load(Ordering::SeqCst));
+        let (tx, _rx) = oneshot::channel::<()>();
         universe
             .send_message(
                 &scheduler_mailbox,
                 SchedulerMessage::SimulateAdvanceTime {
                     time_shift: Duration::from_secs(10),
+                    tx,
                 },
             )
             .await

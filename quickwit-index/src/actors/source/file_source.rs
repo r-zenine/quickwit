@@ -114,7 +114,7 @@ mod tests {
     #[tokio::test]
     async fn test_file_source() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
-        let universe = Universe::new().await;
+        let universe = Universe::new();
         let (mailbox, inbox) = create_test_mailbox();
         let file_source = FileSource::try_new(Path::new("data/test_corpus.json"), mailbox).await?;
         let (file_source_mailbox, file_source_handle) = universe.spawn(file_source);

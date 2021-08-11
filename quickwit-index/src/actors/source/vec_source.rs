@@ -90,7 +90,7 @@ mod tests {
     #[tokio::test]
     async fn test_vec_source() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
-        let universe = Universe::new().await;
+        let universe = Universe::new();
         let (mailbox, inbox) = create_test_mailbox();
         let vec_source = VecSource::new(
             std::iter::repeat_with(|| "{}".to_string())

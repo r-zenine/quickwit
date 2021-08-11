@@ -292,7 +292,7 @@ mod tests {
     #[tokio::test]
     async fn test_packager_no_merge_required() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
-        let universe = Universe::new().await;
+        let universe = Universe::new();
         let (mailbox, inbox) = create_test_mailbox();
         let packager = Packager::new(mailbox);
         let (packager_mailbox, packager_handle) = universe.spawn_sync_actor(packager);
@@ -312,7 +312,7 @@ mod tests {
     #[tokio::test]
     async fn test_packager_merge_required() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
-        let universe = Universe::new().await;
+        let universe = Universe::new();
         let (mailbox, inbox) = create_test_mailbox();
         let packager = Packager::new(mailbox);
         let (packager_mailbox, packager_handle) = universe.spawn_sync_actor(packager);

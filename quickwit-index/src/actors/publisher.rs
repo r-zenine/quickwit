@@ -90,7 +90,7 @@ mod tests {
     #[tokio::test]
     async fn test_publisher_publishes_in_order() {
         quickwit_common::setup_logging_for_tests();
-        let universe = Universe::new().await;
+        let universe = Universe::new();
         let mut mock_metastore = MockMetastore::default();
         mock_metastore
             .expect_publish_splits()

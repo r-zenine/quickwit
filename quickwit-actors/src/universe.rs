@@ -18,6 +18,11 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
+use crate::async_actor::spawn_async_actor;
+use crate::scheduler::SchedulerMessage;
+use crate::sync_actor::spawn_sync_actor;
 use crate::Actor;
 use crate::ActorHandle;
 use crate::AsyncActor;
@@ -27,28 +32,26 @@ use crate::QueueCapacity;
 use crate::Scheduler;
 use crate::SyncActor;
 
+/// Universe serves as the top-level context in which Actor can be spawned.
+/// It is *not* a singleton. A typical application will usually have only one universe hosting all of the actors
+/// but it is not a requirement.
+///
+/// In particular, unit test all have their own universe and hence can be executed in parallel.
 pub struct Universe {
-    scheduler_handle: Option<ActorHandle<Scheduler>>,
     scheduler_mailbox: Mailbox<<Scheduler as Actor>::Message>,
     kill_switch: KillSwitch,
 }
 
-impl Drop for Universe {
-    fn drop(&mut self) {
-        self.kill_switch.kill();
-    }
-}
-
 impl Universe {
     /// Creates a new universe.
-    pub async fn new() -> Universe {
+    pub fn new() -> Universe {
         let scheduler = Scheduler::default();
         let kill_switch = KillSwitch::default();
-        let (mailbox, inbox) =
+        let (mailbox, _inbox) =
             crate::create_mailbox("fake-mailbox".to_string(), QueueCapacity::Unbounded);
-        let (scheduler_mailbox, scheduler_handler) = scheduler.spawn(kill_switch.clone(), mailbox);
+        let (scheduler_mailbox, _scheduler_handler) =
+            spawn_async_actor(scheduler, kill_switch.clone(), mailbox);
         Universe {
-            scheduler_handle: Some(scheduler_handler),
             scheduler_mailbox,
             kill_switch,
         }
@@ -58,15 +61,43 @@ impl Universe {
         self.kill_switch.kill();
     }
 
+    /// Simulate advancing the time for unit tests.
+    ///
+    /// Everything happens as if the universe was frozen, time progressed, and then the universe was unfrozen.
+    /// All of the scheduled callbacks, but if these callbacks would have triggered the scheduling of other event
+    /// the result might be unexpected.
+    ///
+    /// This is indeed different from a fast forward behavior. For instance, assuming an actor increments a counter
+    /// every minute. Calling `simulate_advance_time` for 12 minutes will results in the counter being incremented
+    /// only once (A fast forward would mean incrementing 12 times).
+    ///
+    // TODO it would be cool to actually implement simulate_fast_forward().
+    pub async fn simulate_time_shift(&self, time_shift: Duration) {
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let _ = self
+            .scheduler_mailbox
+            .send_message(SchedulerMessage::SimulateAdvanceTime { time_shift, tx })
+            .await;
+        let _ = rx.await;
+    }
+
     pub fn spawn<A: AsyncActor>(&self, actor: A) -> (Mailbox<A::Message>, ActorHandle<A>) {
-        actor.spawn(self.kill_switch.clone(), self.scheduler_mailbox.clone())
+        spawn_async_actor(
+            actor,
+            self.kill_switch.clone(),
+            self.scheduler_mailbox.clone(),
+        )
     }
 
     pub fn spawn_sync_actor<A: SyncActor>(
         &self,
         actor: A,
     ) -> (Mailbox<A::Message>, ActorHandle<A>) {
-        actor.spawn(self.kill_switch.clone(), self.scheduler_mailbox.clone())
+        spawn_sync_actor(
+            actor,
+            self.kill_switch.clone(),
+            self.scheduler_mailbox.clone(),
+        )
     }
 
     /// `async` version of `send_message`
@@ -76,5 +107,70 @@ impl Universe {
         msg: M,
     ) -> Result<(), crate::SendError> {
         mailbox.send_message(msg).await
+    }
+}
+
+impl Drop for Universe {
+    fn drop(&mut self) {
+        self.kill_switch.kill();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use async_trait::async_trait;
+
+    use crate::Actor;
+    use crate::ActorContext;
+    use crate::ActorTermination;
+    use crate::AsyncActor;
+    use crate::Universe;
+
+    #[derive(Default)]
+    pub struct ActorWithSchedule {
+        count: usize,
+    }
+
+    impl Actor for ActorWithSchedule {
+        type Message = ();
+
+        type ObservableState = usize;
+
+        fn observable_state(&self) -> usize {
+            self.count
+        }
+    }
+
+    #[async_trait]
+    impl AsyncActor for ActorWithSchedule {
+        async fn initialize(&mut self, ctx: &ActorContext<Self>) -> Result<(), ActorTermination> {
+            self.process_message((), ctx).await
+        }
+
+        async fn process_message(
+            &mut self,
+            _: (),
+            ctx: &ActorContext<Self>,
+        ) -> Result<(), ActorTermination> {
+            self.count += 1;
+            ctx.schedule_self_msg(Duration::from_secs(60), ()).await;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_schedule_for_actor() {
+        let universe = Universe::new();
+        let actor_with_schedule = ActorWithSchedule::default();
+        let (_maibox, handler) = universe.spawn(actor_with_schedule);
+        let count_after_initialization = handler.process_pending_and_observe().await.into_inner();
+        assert_eq!(count_after_initialization, 1);
+        universe.simulate_time_shift(Duration::from_secs(180)).await;
+        let count_after_advance_time = handler.process_pending_and_observe().await.into_inner();
+        /// Note the count is 2 here and not 1 + 3  = 4.
+        /// See comment on `universe.simulate_advance_time`.
+        assert_eq!(count_after_advance_time, 2);
     }
 }

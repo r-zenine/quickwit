@@ -1,11 +1,13 @@
 use std::fmt;
 use std::ops::Deref;
+use std::time::Duration;
 use std::{any::type_name, sync::Arc};
 use thiserror::Error;
 use tracing::{debug, error};
 
 use crate::actor_handle::ActorMessage;
-use crate::scheduler::SchedulerMessage;
+use crate::mailbox::Command;
+use crate::scheduler::{Callback, SchedulerMessage};
 use crate::{
     actor_state::{ActorState, AtomicState},
     progress::{Progress, ProtectZoneGuard},
@@ -129,7 +131,7 @@ pub struct ActorContextInner<A: Actor> {
 }
 
 impl<A: Actor> ActorContext<A> {
-    pub fn new(
+    pub(crate) fn new(
         self_mailbox: Mailbox<A::Message>,
         kill_switch: KillSwitch,
         scheduler_mailbox: Mailbox<SchedulerMessage>,
@@ -199,7 +201,10 @@ impl<A: Actor> ActorContext<A> {
         self.actor_state.resume();
     }
 
-    pub(crate) fn terminate(&mut self) {
+    pub(crate) fn terminate(&mut self, termination: &ActorTermination) {
+        if termination.is_failure() {
+            self.kill_switch().kill();
+        }
         self.actor_state.terminate();
     }
 }
@@ -233,6 +238,18 @@ impl<A: SyncActor> ActorContext<A> {
             .map_err(|_| crate::SendError::WouldDeadlock)?;
         Ok(())
     }
+
+    pub fn schedule_self_msg_blocking(&self, after_duration: Duration, msg: A::Message) {
+        let self_mailbox = self.inner.self_mailbox.clone();
+        let cmd_schedule_msg = Command::ScheduledMessage(msg);
+        let scheduler_msg = SchedulerMessage::ScheduleEvent {
+            timeout: after_duration,
+            callback: Callback(Box::pin(async move {
+                let _ = self_mailbox.send_command(cmd_schedule_msg).await;
+            })),
+        };
+        let _ = self.send_message_blocking(&self.inner.scheduler_mailbox, scheduler_msg);
+    }
 }
 
 impl<A: AsyncActor> ActorContext<A> {
@@ -251,5 +268,20 @@ impl<A: AsyncActor> ActorContext<A> {
     pub async fn send_self_message(&self, msg: A::Message) -> Result<(), crate::SendError> {
         debug!(self=%self.self_mailbox.actor_instance_name(), msg=?msg, "self_send");
         self.self_mailbox.send_message(msg).await
+    }
+
+    pub async fn schedule_self_msg(&self, after_duration: Duration, msg: A::Message) {
+        let self_mailbox = self.inner.self_mailbox.clone();
+        let cmd_schedule_msg = Command::ScheduledMessage(msg);
+        let callback = Callback(Box::pin(async move {
+            let _ = self_mailbox.send_command(cmd_schedule_msg).await;
+        }));
+        let scheduler_msg = SchedulerMessage::ScheduleEvent {
+            timeout: after_duration,
+            callback,
+        };
+        let _ = self
+            .send_message(&self.inner.scheduler_mailbox, scheduler_msg)
+            .await;
     }
 }

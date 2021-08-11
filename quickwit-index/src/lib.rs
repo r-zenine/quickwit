@@ -29,9 +29,6 @@ use crate::actors::Uploader;
 use crate::models::CommitPolicy;
 use quickwit_actors::Actor;
 use quickwit_actors::ActorTermination;
-use quickwit_actors::AsyncActor;
-use quickwit_actors::KillSwitch;
-use quickwit_actors::SyncActor;
 use quickwit_actors::Universe;
 use quickwit_metastore::Metastore;
 use quickwit_storage::StorageUriResolver;
@@ -73,7 +70,7 @@ pub async fn spawn_indexing_pipeline(
     let source = FileSource::try_new(Path::new("data/test_corpus.json"), indexer_mailbox).await?;
 
     let (source_mailbox, _source_handle) = universe.spawn(source);
-    let universe = Universe::new().await;
+    let universe = Universe::new();
     universe.send_message(&source_mailbox, ()).await?;
     let (actor_termination, observation) = publisher_handler.join().await?;
     Ok((actor_termination, observation))
@@ -119,7 +116,7 @@ mod tests {
             })
             .times(1)
             .returning(|_, _| Ok(()));
-        let universe = Universe::new().await;
+        let universe = Universe::new();
         let (publisher_termination, publisher_counters) = spawn_indexing_pipeline(
             &universe,
             "test-index".to_string(),

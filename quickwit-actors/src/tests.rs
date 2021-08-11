@@ -1,6 +1,5 @@
 use crate::mailbox::Command;
 use crate::Actor;
-use crate::KillSwitch;
 use crate::Universe;
 use crate::{ActorContext, ActorTermination, AsyncActor, Mailbox, Observation, SyncActor};
 use async_trait::async_trait;
@@ -131,7 +130,7 @@ impl AsyncActor for PingerAsyncSenderActor {
 #[tokio::test]
 async fn test_ping_actor() {
     quickwit_common::setup_logging_for_tests();
-    let universe = Universe::new().await;
+    let universe = Universe::new();
     let (ping_recv_mailbox, ping_recv_handle) =
         universe.spawn_sync_actor(PingReceiverSyncActor::default());
     let (ping_sender_mailbox, ping_sender_handle) =
@@ -234,7 +233,7 @@ impl AsyncActor for BuggyActor {
 
 #[tokio::test]
 async fn test_timeouting_actor() {
-    let universe = Universe::new().await;
+    let universe = Universe::new();
     let (buggy_mailbox, buggy_handle) = universe.spawn(BuggyActor);
     let buggy_mailbox = buggy_mailbox;
     assert_eq!(buggy_handle.observe().await, Observation::Running(()));
@@ -256,7 +255,7 @@ async fn test_timeouting_actor() {
 #[tokio::test]
 async fn test_pause_sync_actor() {
     quickwit_common::setup_logging_for_tests();
-    let universe = Universe::new().await;
+    let universe = Universe::new();
     let actor = PingReceiverSyncActor::default();
     let (ping_mailbox, ping_handle) = universe.spawn_sync_actor(actor);
     for _ in 0..1000 {
@@ -276,7 +275,7 @@ async fn test_pause_sync_actor() {
 #[tokio::test]
 async fn test_pause_async_actor() {
     quickwit_common::setup_logging_for_tests();
-    let universe = Universe::new().await;
+    let universe = Universe::new();
     let (ping_mailbox, ping_handle) = universe.spawn(PingReceiverAsyncActor::default());
     for _ in 0u32..1000u32 {
         assert!(ping_mailbox.send_message(Ping).await.is_ok());
@@ -353,7 +352,7 @@ impl SyncActor for LoopingActor {
 
 #[tokio::test]
 async fn test_default_message_async() -> anyhow::Result<()> {
-    let universe = Universe::new().await;
+    let universe = Universe::new();
     let actor_with_default_msg = LoopingActor::default();
     let (actor_with_default_msg_mailbox, actor_with_default_msg_handle) =
         universe.spawn(actor_with_default_msg);
@@ -378,11 +377,11 @@ async fn test_default_message_async() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_default_message_sync() -> anyhow::Result<()> {
-    let universe = Universe::new().await;
+    let universe = Universe::new();
     let actor_with_default_msg = LoopingActor::default();
     let (actor_with_default_msg_mailbox, actor_with_default_msg_handle) =
         universe.spawn_sync_actor(actor_with_default_msg);
-    let universe = Universe::new().await;
+    let universe = Universe::new();
     universe
         .send_message(&actor_with_default_msg_mailbox, Msg::Looping)
         .await?;

@@ -241,7 +241,7 @@ mod tests {
     #[tokio::test]
     async fn test_uploader() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
-        let universe = Universe::new().await;
+        let universe = Universe::new();
         let (mailbox, inbox) = create_test_mailbox();
         let mut mock_metastore = MockMetastore::default();
         mock_metastore

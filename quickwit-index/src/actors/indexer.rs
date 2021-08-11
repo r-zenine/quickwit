@@ -213,8 +213,6 @@ mod tests {
     use crate::models::CommitPolicy;
     use crate::models::RawDocBatch;
     use quickwit_actors::create_test_mailbox;
-    use quickwit_actors::KillSwitch;
-    use quickwit_actors::SyncActor;
     use quickwit_actors::Universe;
 
     use super::Indexer;
@@ -222,7 +220,7 @@ mod tests {
     #[tokio::test]
     async fn test_indexer() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
-        let universe = Universe::new().await;
+        let universe = Universe::new();
         let commit_policy = CommitPolicy {
             timeout: Duration::from_secs(60),
             num_docs_threshold: 3,
