@@ -27,6 +27,7 @@ use std::collections::BinaryHeap;
 use std::pin::Pin;
 use std::time::Duration;
 use std::time::Instant;
+use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 use tracing::info;
 
@@ -67,6 +68,12 @@ impl Ord for TimeoutEvent {
     }
 }
 
+#[derive(Debug)]
+pub enum TimeShift {
+    ToInstant(Instant),
+    ByDuration(Duration),
+}
+
 pub(crate) enum SchedulerMessage {
     ScheduleEvent {
         timeout: Duration,
@@ -74,7 +81,7 @@ pub(crate) enum SchedulerMessage {
     },
     Timeout,
     SimulateAdvanceTime {
-        time_shift: Duration,
+        time_shift: TimeShift,
         tx: tokio::sync::oneshot::Sender<()>,
     },
 }
@@ -90,10 +97,9 @@ impl fmt::Debug for SchedulerMessage {
                 .field("timeout", timeout)
                 .finish(),
             SchedulerMessage::Timeout => f.write_str("Timeout"),
-            SchedulerMessage::SimulateAdvanceTime { time_shift, .. } => f
-                .debug_struct("SimulateAdvanceTime")
-                .field("time_shift", time_shift)
-                .finish(),
+            SchedulerMessage::SimulateAdvanceTime { .. } => {
+                f.debug_struct("SimulateAdvanceTime").finish()
+            }
         }
     }
 }
@@ -138,8 +144,8 @@ impl AsyncActor for Scheduler {
             }
             SchedulerMessage::Timeout => self.process_timeout(ctx).await,
             SchedulerMessage::SimulateAdvanceTime { time_shift, tx } => {
-                self.process_simulate_advance_time(time_shift, ctx).await;
-                let _ = tx.send(());
+                self.process_simulate_advance_time(time_shift, tx, ctx)
+                    .await
             }
         }
         Ok(())
@@ -175,16 +181,49 @@ impl Scheduler {
 
     async fn process_simulate_advance_time(
         &mut self,
-        time_shift: Duration,
+        time_shift: TimeShift,
+        tx: Sender<()>,
         ctx: &ActorContext<Self>,
     ) {
+        let now = self.simulated_now();
+        let deadline = match time_shift {
+            TimeShift::ToInstant(instant) => instant,
+            TimeShift::ByDuration(duration) => now + duration,
+        };
+        if now > deadline {
+            let _ = tx.send(());
+            return;
+        }
+        if let Some(next_evt_before_deadline) = self.next_event_deadline().filter(|t| t < &deadline)
+        {
+            self.advance_by_duration(next_evt_before_deadline - now, ctx)
+                .await;
+            // We leave 100ms for actors to process their messages. A callback on process would not work here,
+            // as callbacks might create extra messages in turn.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let _ = ctx
+                .send_self_message(SchedulerMessage::SimulateAdvanceTime {
+                    time_shift: TimeShift::ToInstant(deadline),
+                    tx,
+                })
+                .await;
+        } else {
+            self.advance_by_duration(deadline - now, ctx).await;
+            let _ = tx.send(());
+        }
+    }
+
+    async fn advance_by_duration(&mut self, time_shift: Duration, ctx: &ActorContext<Self>) {
         info!(time_shift=?time_shift, "advance-time");
         self.simulated_time_shift += time_shift;
         self.process_timeout(ctx).await;
     }
 
+    fn next_event_deadline(&self) -> Option<Instant> {
+        self.future_events.peek().map(|rev| rev.0.deadline)
+    }
     fn find_next_event_before_now(&mut self, simulated_now: Instant) -> Option<Callback> {
-        let next_event_deadline: Instant = self.future_events.peek().map(|rev| rev.0.deadline)?;
+        let next_event_deadline = self.next_event_deadline()?;
         if next_event_deadline < simulated_now {
             self.future_events.pop().map(|rev| rev.0.callback)
         } else {
@@ -231,7 +270,7 @@ impl Scheduler {
 #[cfg(test)]
 mod tests {
     use super::{Callback, Scheduler, SchedulerMessage};
-    use crate::scheduler::SchedulerCounters;
+    use crate::scheduler::{SchedulerCounters, TimeShift};
     use crate::Universe;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
@@ -272,7 +311,7 @@ mod tests {
             .send_message(
                 &scheduler_mailbox,
                 SchedulerMessage::SimulateAdvanceTime {
-                    time_shift: Duration::from_secs(31),
+                    time_shift: TimeShift::ByDuration(Duration::from_secs(31)),
                     tx,
                 },
             )
@@ -352,7 +391,7 @@ mod tests {
             .send_message(
                 &scheduler_mailbox,
                 SchedulerMessage::SimulateAdvanceTime {
-                    time_shift: Duration::from_secs(10),
+                    time_shift: TimeShift::ByDuration(Duration::from_secs(10)),
                     tx,
                 },
             )
@@ -365,7 +404,7 @@ mod tests {
             .send_message(
                 &scheduler_mailbox,
                 SchedulerMessage::SimulateAdvanceTime {
-                    time_shift: Duration::from_secs(10),
+                    time_shift: TimeShift::ByDuration(Duration::from_secs(10)),
                     tx,
                 },
             )

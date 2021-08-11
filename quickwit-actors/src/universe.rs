@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use crate::async_actor::spawn_async_actor;
 use crate::scheduler::SchedulerMessage;
+use crate::scheduler::TimeShift;
 use crate::sync_actor::spawn_sync_actor;
 use crate::Actor;
 use crate::ActorHandle;
@@ -63,20 +64,19 @@ impl Universe {
 
     /// Simulate advancing the time for unit tests.
     ///
-    /// Everything happens as if the universe was frozen, time progressed, and then the universe was unfrozen.
-    /// All of the scheduled callbacks, but if these callbacks would have triggered the scheduling of other event
-    /// the result might be unexpected.
+    /// It is not just about jumping the clock and triggering one round of messages:
+    /// These message might have generated more messages for instance.
     ///
-    /// This is indeed different from a fast forward behavior. For instance, assuming an actor increments a counter
-    /// every minute. Calling `simulate_advance_time` for 12 minutes will results in the counter being incremented
-    /// only once (A fast forward would mean incrementing 12 times).
-    ///
-    // TODO it would be cool to actually implement simulate_fast_forward().
-    pub async fn simulate_time_shift(&self, time_shift: Duration) {
+    /// This simulation triggers progress step by step, and after each step, leaves 100ms for actors
+    /// to schedule extra messages.
+    pub async fn simulate_time_shift(&self, duration: Duration) {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let _ = self
             .scheduler_mailbox
-            .send_message(SchedulerMessage::SimulateAdvanceTime { time_shift, tx })
+            .send_message(SchedulerMessage::SimulateAdvanceTime {
+                time_shift: TimeShift::ByDuration(duration),
+                tx,
+            })
             .await;
         let _ = rx.await;
     }
@@ -155,7 +155,9 @@ mod tests {
             ctx: &ActorContext<Self>,
         ) -> Result<(), ActorTermination> {
             self.count += 1;
+            dbg!("process message");
             ctx.schedule_self_msg(Duration::from_secs(60), ()).await;
+            dbg!("process message done");
             Ok(())
         }
     }
@@ -167,10 +169,10 @@ mod tests {
         let (_maibox, handler) = universe.spawn(actor_with_schedule);
         let count_after_initialization = handler.process_pending_and_observe().await.into_inner();
         assert_eq!(count_after_initialization, 1);
-        universe.simulate_time_shift(Duration::from_secs(180)).await;
+        universe.simulate_time_shift(Duration::from_secs(200)).await;
         let count_after_advance_time = handler.process_pending_and_observe().await.into_inner();
         /// Note the count is 2 here and not 1 + 3  = 4.
         /// See comment on `universe.simulate_advance_time`.
-        assert_eq!(count_after_advance_time, 2);
+        assert_eq!(count_after_advance_time, 4);
     }
 }
